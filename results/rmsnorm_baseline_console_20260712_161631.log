@@ -1,0 +1,55 @@
+========================================================================
+EdgeLLM-KernelBench: RMSNorm Baseline
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Warmup calls:     20
+Measure rounds:   30
+Repeats/round:    50
+
+Loading RMSNorm CUDA extension...
+RMSNorm CUDA extension loaded.
+
+Case: rows=1, hidden_size=1024, elements=1024
+Correctness maximum absolute error: 0.00000000e+00
+PyTorch Reference median: 0.229648 ms
+CUDA Naive median:        0.029416 ms
+CUDA Naive speedup:       7.807x
+
+Case: rows=1, hidden_size=4096, elements=4096
+Correctness maximum absolute error: 4.76837158e-07
+PyTorch Reference median: 0.229624 ms
+CUDA Naive median:        0.028505 ms
+CUDA Naive speedup:       8.055x
+
+Case: rows=16, hidden_size=4096, elements=65536
+Correctness maximum absolute error: 1.43051147e-06
+PyTorch Reference median: 0.231412 ms
+CUDA Naive median:        0.029227 ms
+CUDA Naive speedup:       7.918x
+
+Case: rows=128, hidden_size=4096, elements=524288
+Correctness maximum absolute error: 1.90734863e-06
+PyTorch Reference median: 0.234652 ms
+CUDA Naive median:        0.055385 ms
+CUDA Naive speedup:       4.237x
+
+
+================================================================================================================
+RMSNorm Benchmark Summary
+================================================================================================================
+implementation          rows    hidden      mean(ms)    median(ms)       min(ms)       p95(ms)     speedup
+----------------------------------------------------------------------------------------------------------------
+pytorch_reference          1      1024      0.231247      0.229648      0.226622      0.251518      1.000x
+cuda_naive                 1      1024      0.029514      0.029416      0.027729      0.030887      7.807x
+pytorch_reference          1      4096      0.230090      0.229624      0.226867      0.234929      1.000x
+cuda_naive                 1      4096      0.028606      0.028505      0.027557      0.030031      8.055x
+pytorch_reference         16      4096      0.231398      0.231412      0.228580      0.234319      1.000x
+cuda_naive                16      4096      0.029260      0.029227      0.027659      0.030425      7.918x
+pytorch_reference        128      4096      0.234583      0.234652      0.231599      0.236680      1.000x
+cuda_naive               128      4096      0.055390      0.055385      0.055254      0.055508      4.237x
+================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/rmsnorm_baseline_20260712_161636.csv
