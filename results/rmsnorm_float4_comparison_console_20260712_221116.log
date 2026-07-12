@@ -1,0 +1,99 @@
+========================================================================
+EdgeLLM-KernelBench: RMSNorm Naive vs Warp vs Float4
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Warmup calls:     20
+Measure rounds:   30
+Repeats/round:    50
+
+Loading RMSNorm CUDA extension...
+RMSNorm CUDA extension loaded.
+
+Case: rows=1, hidden_size=1024, elements=1024
+Naive correctness maximum error: 0.00000000e+00
+Warp correctness maximum error:  0.00000000e+00
+Float4 correctness maximum error: 0.00000000e+00
+PyTorch Reference median: 0.236950 ms
+CUDA Naive median:        0.031014 ms
+CUDA Warp median:         0.030207 ms
+CUDA Float4 median:       0.030438 ms
+CUDA Naive vs Reference:  7.640x
+CUDA Warp vs Reference:   7.844x
+CUDA Float4 vs Reference: 7.785x
+CUDA Warp vs Naive:       1.027x
+CUDA Float4 vs Naive:     1.019x
+CUDA Float4 vs Warp:      0.992x
+
+Case: rows=1, hidden_size=4096, elements=4096
+Naive correctness maximum error: 4.76837158e-07
+Warp correctness maximum error:  0.00000000e+00
+Float4 correctness maximum error: 0.00000000e+00
+PyTorch Reference median: 0.236925 ms
+CUDA Naive median:        0.030562 ms
+CUDA Warp median:         0.030015 ms
+CUDA Float4 median:       0.030077 ms
+CUDA Naive vs Reference:  7.752x
+CUDA Warp vs Reference:   7.894x
+CUDA Float4 vs Reference: 7.877x
+CUDA Warp vs Naive:       1.018x
+CUDA Float4 vs Naive:     1.016x
+CUDA Float4 vs Warp:      0.998x
+
+Case: rows=16, hidden_size=4096, elements=65536
+Naive correctness maximum error: 1.43051147e-06
+Warp correctness maximum error:  9.53674316e-07
+Float4 correctness maximum error: 1.43051147e-06
+PyTorch Reference median: 0.239348 ms
+CUDA Naive median:        0.031154 ms
+CUDA Warp median:         0.030316 ms
+CUDA Float4 median:       0.030342 ms
+CUDA Naive vs Reference:  7.683x
+CUDA Warp vs Reference:   7.895x
+CUDA Float4 vs Reference: 7.888x
+CUDA Warp vs Naive:       1.028x
+CUDA Float4 vs Naive:     1.027x
+CUDA Float4 vs Warp:      0.999x
+
+Case: rows=128, hidden_size=4096, elements=524288
+Naive correctness maximum error: 1.90734863e-06
+Warp correctness maximum error:  1.90734863e-06
+Float4 correctness maximum error: 1.90734863e-06
+PyTorch Reference median: 0.241442 ms
+CUDA Naive median:        0.055807 ms
+CUDA Warp median:         0.055214 ms
+CUDA Float4 median:       0.052620 ms
+CUDA Naive vs Reference:  4.326x
+CUDA Warp vs Reference:   4.373x
+CUDA Float4 vs Reference: 4.588x
+CUDA Warp vs Naive:       1.011x
+CUDA Float4 vs Naive:     1.061x
+CUDA Float4 vs Warp:      1.049x
+
+
+================================================================================================================
+RMSNorm Benchmark Summary
+================================================================================================================
+implementation          rows    hidden      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+----------------------------------------------------------------------------------------------------------------
+pytorch_reference          1      1024      0.237530      0.236950      0.232482      0.249843      1.000x
+cuda_naive                 1      1024      0.030967      0.031014      0.029916      0.031825      7.640x
+cuda_warp                  1      1024      0.030198      0.030207      0.028932      0.031178      7.844x
+cuda_float4                1      1024      0.030486      0.030438      0.028991      0.031510      7.785x
+pytorch_reference          1      4096      0.237023      0.236925      0.232487      0.240635      1.000x
+cuda_naive                 1      4096      0.030513      0.030562      0.029462      0.031215      7.752x
+cuda_warp                  1      4096      0.030086      0.030015      0.029443      0.031075      7.894x
+cuda_float4                1      4096      0.030023      0.030077      0.028733      0.030718      7.877x
+pytorch_reference         16      4096      0.239468      0.239348      0.236842      0.242150      1.000x
+cuda_naive                16      4096      0.031139      0.031154      0.030154      0.031981      7.683x
+cuda_warp                 16      4096      0.030401      0.030316      0.029283      0.031541      7.895x
+cuda_float4               16      4096      0.030345      0.030342      0.028816      0.031371      7.888x
+pytorch_reference        128      4096      0.241530      0.241442      0.239587      0.244862      1.000x
+cuda_naive               128      4096      0.055806      0.055807      0.055688      0.055908      4.326x
+cuda_warp                128      4096      0.055222      0.055214      0.055091      0.055373      4.373x
+cuda_float4              128      4096      0.052638      0.052620      0.052496      0.052845      4.588x
+================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/rmsnorm_float4_comparison_20260712_221121.csv

@@ -42,10 +42,12 @@
 - [x] PyTorch GPU 计算验证
 - [x] PyTorch CUDA Extension 验证
 - [x] 项目目录初始化
-- [ ] 项目基础代码框架
-- [ ] RMSNorm PyTorch Reference
-- [ ] RMSNorm CUDA Naive Kernel
-- [ ] RMSNorm CUDA Optimized Kernel
+- [x] 项目基础代码框架
+- [x] RMSNorm PyTorch Reference
+- [x] RMSNorm CUDA Naive Kernel
+- [x] RMSNorm CUDA Optimized Kernel
+- [x] RMSNorm Optimization Report
+- [x] RoPE PyTorch Reference
 - [ ] RoPE CUDA Kernel
 - [ ] INT8 Dequant-GEMV CUDA Kernel
 

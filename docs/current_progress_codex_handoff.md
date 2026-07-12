@@ -4,7 +4,120 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RMSNorm CUDA 算子优化  
-> 下一任务：Phase 3 `float4` 向量化访存优化
+> 最新状态：Phase 3 `float4` 向量化访存优化已完成并验证
+> 下一任务：整理 Phase 3 性能结论，准备下一阶段算子或 RMSNorm 后续优化
+
+---
+
+## 0. 最新进展更新（2026-07-12 22:11）
+
+### 0.1 RoPE Phase 1 更新（2026-07-12 22:24）
+
+RoPE PyTorch Reference 已完成：
+
+- 新增 `python/edge_kernelbench/rope.py`；
+- 新增 `tests/test_rope.py`；
+- 支持 `apply_rope_reference(x, cos, sin)`；
+- 支持 `rope_reference(q, k, cos, sin)`；
+- 支持 `RoPEReference` 模块封装；
+- 支持常见形状：
+  - `[seq_len, head_dim]`
+  - `[seq_len, num_heads, head_dim]`
+  - `[batch_size, seq_len, num_heads, head_dim]`
+- 支持 CPU / CUDA；
+- FP16 / BF16 输入内部使用 FP32 计算，输出恢复输入 dtype；
+- 已覆盖固定值、2D/3D/4D 形状、q/k、模块一致性、FP16 CUDA、反向传播和非法输入。
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/rope.py tests/test_rope.py
+通过
+
+PYTHONPATH=python python -m pytest tests/test_rope.py -v
+24 passed in 2.69s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+88 passed in 3.76s
+```
+
+RoPE 下一步：
+
+```text
+Phase 2：实现 RoPE CUDA Naive Kernel 和 benchmark。
+```
+
+### 0.2 RMSNorm Phase 3 更新（2026-07-12 22:11）
+
+Phase 3 已完成：
+
+- 新增 `kernels/rmsnorm/rmsnorm_float4_kernel.cu`；
+- 新增 C++ `forward_float4` / Python `rmsnorm_cuda_float4()`；
+- 新增 `tests/test_rmsnorm_float4.py`；
+- `benchmarks/benchmark_rmsnorm.py` 已扩展为 PyTorch / Naive / Warp / Float4 四方比较；
+- 新增 RMSNorm 阶段性优化分析报告：
+  - `docs/01_rmsnorm_optimization.md`
+- 已生成正式 benchmark CSV 和控制台日志：
+  - `results/rmsnorm_float4_comparison_20260712_221121.csv`
+  - `results/rmsnorm_float4_comparison_console_20260712_221116.log`
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/rmsnorm_cuda.py tests/test_rmsnorm_float4.py benchmarks/benchmark_rmsnorm.py
+通过
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_rmsnorm_float4.py -v
+15 passed in 3.31s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+64 passed in 3.46s
+```
+
+正式 benchmark 参数：
+
+```text
+warmup=20
+rounds=30
+repeats=50
+```
+
+Float4 相对 PyTorch Reference：
+
+```text
+rows=1,   hidden=1024：7.785x
+rows=1,   hidden=4096：7.877x
+rows=16,  hidden=4096：7.888x
+rows=128, hidden=4096：4.588x
+```
+
+Float4 相对 Naive / Warp：
+
+```text
+rows=1, hidden=1024
+Float4 vs Naive：1.019x
+Float4 vs Warp： 0.992x
+
+rows=1, hidden=4096
+Float4 vs Naive：1.016x
+Float4 vs Warp： 0.998x
+
+rows=16, hidden=4096
+Float4 vs Naive：1.027x
+Float4 vs Warp： 0.999x
+
+rows=128, hidden=4096
+Float4 vs Naive：1.061x
+Float4 vs Warp： 1.049x
+```
+
+当前结论：
+
+```text
+Float4 数值正确。
+在 rows=128, hidden=4096 场景有明确收益；
+在小 rows 场景与 Warp 基本持平，部分场景略慢于 Warp。
+```
 
 ---
 
@@ -386,48 +499,26 @@ Warp Shuffle 数值正确，但没有形成稳定加速。
 
 ---
 
-## 6. 当前 Phase 3 的已知问题
+## 6. 当前 Phase 3 状态
 
-用户已经创建：
+Phase 3 的早期已知问题已经处理：
 
-```text
-kernels/rmsnorm/rmsnorm_float4_kernel.cu
-```
+- `kernels/rmsnorm/rmsnorm_float4_kernel.cu` 已不再是空文件或 Warp Kernel 重复内容；
+- 当前文件已包含 `is_float4_aligned`、`warp_reduce_sum_float4`、`rmsnorm_float4_kernel`、`rmsnorm_float4_cuda_launcher`；
+- C++ 已注册 `forward_float4`；
+- Python 已暴露 `rmsnorm_cuda_float4()`；
+- 专项测试和全量测试均通过；
+- 正式 benchmark 已生成 CSV 和控制台日志。
 
-但检查结果显示，该文件实际误粘贴成 Warp Kernel 的重复内容。
-
-检查 float4 关键符号时，只在注释中找到一次 `float4`：
-
-```bash
-grep -nE \
-  "rmsnorm_float4_kernel|rmsnorm_float4_cuda_launcher|is_float4_aligned|float4" \
-  kernels/rmsnorm/rmsnorm_float4_kernel.cu
-```
-
-检查 Warp 符号时找到：
-
-```text
-warp_reduce_sum
-rmsnorm_warp_kernel
-shared_warp_sums
-rmsnorm_warp_cuda_launcher
-```
-
-因此该文件目前很可能不正确。
-
-最后建议用户执行过以下命令，但尚未收到执行结果：
-
-```bash
-rm kernels/rmsnorm/rmsnorm_float4_kernel.cu
-touch kernels/rmsnorm/rmsnorm_float4_kernel.cu
-wc -l kernels/rmsnorm/rmsnorm_float4_kernel.cu
-```
-
-Codex 不能假设文件已经清空，必须先检查。
+当前没有阻塞 Phase 3 合入的已知正确性问题。
 
 ---
 
-## 7. Codex 第一轮操作
+## 7. 历史记录：Phase 3 开始前的第一轮检查
+
+> 注意：本节是 Phase 3 完成前的历史操作记录。
+> 当前 `rmsnorm_float4_kernel.cu` 已完成实现，不要再执行本节中的
+> `rm` / `touch` 清空命令。
 
 ### Step 1：检查状态
 

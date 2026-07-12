@@ -11,13 +11,16 @@
  * 4. 通过 PyBind11 将接口注册给 Python。
  *
  *
- * 当前支持两个 CUDA 实现：
+ * 当前支持三个 CUDA 实现：
  *
  *     forward(...)
  *         FP32 Naive Shared Memory Reduce 版本。
  *
  *     forward_warp(...)
  *         FP32 Warp Shuffle Reduce 版本。
+ *
+ *     forward_float4(...)
+ *         FP32 float4 向量化访存版本。
  *
  *
  * 完整调用关系：
@@ -29,9 +32,13 @@
  *   │       ↓
  *   │   rmsnorm_kernel.cu
  *   │
- *   └── rmsnorm_warp_cuda_launcher(...)
+ *   ├── rmsnorm_warp_cuda_launcher(...)
+ *   │       ↓
+ *   │   rmsnorm_warp_kernel.cu
+ *   │
+ *   └── rmsnorm_float4_cuda_launcher(...)
  *           ↓
- *       rmsnorm_warp_kernel.cu
+ *       rmsnorm_float4_kernel.cu
  *           ↓
  *       Jetson Orin GPU
  */
@@ -68,6 +75,20 @@ torch::Tensor rmsnorm_cuda_launcher(
  *     kernels/rmsnorm/rmsnorm_warp_kernel.cu
  */
 torch::Tensor rmsnorm_warp_cuda_launcher(
+    torch::Tensor x,
+    torch::Tensor weight,
+    double eps
+);
+
+
+/*
+ * 声明 float4 向量化 CUDA Launcher。
+ *
+ * 该函数真正的定义位于：
+ *
+ *     kernels/rmsnorm/rmsnorm_float4_kernel.cu
+ */
+torch::Tensor rmsnorm_float4_cuda_launcher(
     torch::Tensor x,
     torch::Tensor weight,
     double eps
@@ -365,6 +386,42 @@ torch::Tensor rmsnorm_warp_forward(
 
 
 /*
+ * float4 向量化 RMSNorm 前向接口。
+ *
+ * Python 侧对应：
+ *
+ *     extension.forward_float4(x, weight, eps)
+ */
+torch::Tensor rmsnorm_float4_forward(
+    torch::Tensor x,
+    torch::Tensor weight,
+    double eps
+) {
+    /*
+     * float4 版本与 Naive/Warp 版本使用相同输入约束。
+     *
+     * 内部会对每一行做 16 字节对齐检查；
+     * 不对齐时自动回退到标量访问路径。
+     */
+    validate_rmsnorm_inputs(
+        x,
+        weight,
+        eps
+    );
+
+
+    /*
+     * 检查通过后，调用 float4 CUDA Launcher。
+     */
+    return rmsnorm_float4_cuda_launcher(
+        x,
+        weight,
+        eps
+    );
+}
+
+
+/*
  * 使用 PyBind11 注册 Python 扩展接口。
  *
  * TORCH_EXTENSION_NAME 由：
@@ -410,5 +467,23 @@ PYBIND11_MODULE(
         "forward_warp",
         &rmsnorm_warp_forward,
         "RMSNorm warp shuffle CUDA forward"
+    );
+
+
+    /*
+     * 注册 float4 向量化 CUDA 实现。
+     *
+     * Python 调用形式：
+     *
+     *     extension.forward_float4(
+     *         x,
+     *         weight,
+     *         eps,
+     *     )
+     */
+    module.def(
+        "forward_float4",
+        &rmsnorm_float4_forward,
+        "RMSNorm float4 vectorized CUDA forward"
     );
 }

@@ -1,7 +1,7 @@
 """
 RMSNorm CUDA 扩展的 Python 加载与调用接口。
 
-当前扩展包含两个 CUDA 实现：
+当前扩展包含三个 CUDA 实现：
 
 1. rmsnorm_cuda()
 
@@ -10,6 +10,10 @@ RMSNorm CUDA 扩展的 Python 加载与调用接口。
 2. rmsnorm_cuda_warp()
 
    对应 Warp Shuffle Reduce 版本。
+
+3. rmsnorm_cuda_float4()
+
+   对应 float4 向量化访存版本。
 
 
 完整调用关系：
@@ -22,8 +26,11 @@ RMSNorm CUDA 扩展的 Python 加载与调用接口。
         ├── rmsnorm_kernel.cu
         │       Naive Shared Memory Reduce
         │
-        └── rmsnorm_warp_kernel.cu
-                Warp Shuffle Reduce
+        ├── rmsnorm_warp_kernel.cu
+        │       Warp Shuffle Reduce
+        │
+        └── rmsnorm_float4_kernel.cu
+                float4 Vectorized Load / Store
         ↓
     Jetson Orin GPU
 
@@ -135,6 +142,14 @@ def load_rmsnorm_cuda_extension(
             eps,
         )
 
+    以及：
+
+        extension.forward_float4(
+            x,
+            weight,
+            eps,
+        )
+
 
     参数
     ----------
@@ -211,6 +226,12 @@ def load_rmsnorm_cuda_extension(
         / "rmsnorm_warp_kernel.cu"
     )
 
+    # float4 向量化访存 CUDA 实现。
+    float4_cuda_source = (
+        kernel_directory
+        / "rmsnorm_float4_kernel.cu"
+    )
+
     # 编译中间文件和最终动态库的存放目录。
     #
     # 目录结构类似：
@@ -220,6 +241,7 @@ def load_rmsnorm_cuda_extension(
     #         ├── rmsnorm.o
     #         ├── rmsnorm_kernel.cuda.o
     #         ├── rmsnorm_warp_kernel.cuda.o
+    #         ├── rmsnorm_float4_kernel.cuda.o
     #         └── edge_kernelbench_rmsnorm_cuda.so
     #
     # 项目的 .gitignore 已经忽略 build/，
@@ -241,6 +263,7 @@ def load_rmsnorm_cuda_extension(
         cpp_source,
         naive_cuda_source,
         warp_cuda_source,
+        float4_cuda_source,
     ]
 
     # 在真正调用编译器之前，
@@ -462,7 +485,7 @@ def rmsnorm_cuda_warp(
         与 x 具有相同形状、dtype 和 device 的输出张量。
     """
 
-    # 加载包含 Naive 和 Warp 两个实现的统一扩展模块。
+    # 加载包含 Naive、Warp 和 float4 三个实现的统一扩展模块。
     extension = load_rmsnorm_cuda_extension()
 
     # forward_warp 对应 rmsnorm.cpp 中注册的：
@@ -477,6 +500,76 @@ def rmsnorm_cuda_warp(
     #
     #     rmsnorm_warp_kernel()
     return extension.forward_warp(
+        x,
+        weight,
+        float(eps),
+    )
+
+
+# ---------------------------------------------------------------------------
+# float4 向量化 CUDA Python 接口
+# ---------------------------------------------------------------------------
+
+
+def rmsnorm_cuda_float4(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """
+    调用 RMSNorm FP32 float4 向量化 CUDA Kernel。
+
+    该版本在每一行满足 16 字节对齐时使用：
+
+        float4 load / store
+
+    一次处理 4 个连续 float。
+
+    当输入行、输出行或 weight 不满足 float4 对齐要求时，
+    Kernel 会对该行自动回退到标量访问路径。
+
+
+    参数
+    ----------
+    x:
+        CUDA FP32 连续输入张量。
+
+        RMSNorm 沿最后一个维度执行。
+
+    weight:
+        CUDA FP32 一维连续权重张量。
+
+        元素数量必须等于：
+
+            x.shape[-1]
+
+    eps:
+        数值稳定常数。
+
+        必须严格大于零。
+
+
+    返回
+    ----
+    torch.Tensor
+        与 x 具有相同形状、dtype 和 device 的输出张量。
+    """
+
+    # 加载包含 Naive、Warp 和 float4 三个实现的统一扩展模块。
+    extension = load_rmsnorm_cuda_extension()
+
+    # forward_float4 对应 rmsnorm.cpp 中注册的：
+    #
+    #     rmsnorm_float4_forward()
+    #
+    # 它最终会调用：
+    #
+    #     rmsnorm_float4_cuda_launcher()
+    #
+    # 以及：
+    #
+    #     rmsnorm_float4_kernel()
+    return extension.forward_float4(
         x,
         weight,
         float(eps),
