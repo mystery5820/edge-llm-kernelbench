@@ -315,7 +315,7 @@ def test_rejects_fp16_input() -> None:
 
     with pytest.raises(
         RuntimeError,
-        match="supports only float32 x",
+        match="support only float32 x",
     ):
         rmsnorm_cuda(
             x,
@@ -343,7 +343,7 @@ def test_rejects_fp16_weight() -> None:
 
     with pytest.raises(
         RuntimeError,
-        match="supports only float32 weight",
+        match="support only float32 weight",
     ):
         rmsnorm_cuda(
             x,

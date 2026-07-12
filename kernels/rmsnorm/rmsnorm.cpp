@@ -1,54 +1,57 @@
 /*
  * RMSNorm CUDA 扩展的 PyTorch C++ 接口层。
  *
- * 这个文件本身不包含 CUDA Kernel。
+ * 本文件不直接实现 CUDA Kernel。
  *
  * 它主要负责：
  *
  * 1. 接收 Python 传入的 torch.Tensor；
- * 2. 检查输入张量是否合法；
- * 3. 调用 rmsnorm_kernel.cu 中真正的 CUDA 实现；
- * 4. 使用 pybind11 把 C++ 函数暴露给 Python。
+ * 2. 对输入张量、权重和 eps 进行统一检查；
+ * 3. 调用不同版本的 CUDA Launcher；
+ * 4. 通过 PyBind11 将接口注册给 Python。
  *
- * 整体调用关系：
+ *
+ * 当前支持两个 CUDA 实现：
+ *
+ *     forward(...)
+ *         FP32 Naive Shared Memory Reduce 版本。
+ *
+ *     forward_warp(...)
+ *         FP32 Warp Shuffle Reduce 版本。
+ *
+ *
+ * 完整调用关系：
  *
  * Python
  *   ↓
  * rmsnorm.cpp
- *   ↓
- * rmsnorm_kernel.cu
- *   ↓
- * Jetson Orin GPU
+ *   ├── rmsnorm_cuda_launcher(...)
+ *   │       ↓
+ *   │   rmsnorm_kernel.cu
+ *   │
+ *   └── rmsnorm_warp_cuda_launcher(...)
+ *           ↓
+ *       rmsnorm_warp_kernel.cu
+ *           ↓
+ *       Jetson Orin GPU
  */
+
 
 #include <torch/extension.h>
 
 
 /*
- * 声明 CUDA 启动函数。
+ * 声明 Naive CUDA Launcher。
  *
- * 这个函数会在 rmsnorm_kernel.cu 中实现。
+ * 该函数真正的定义位于：
  *
- * 这里只写函数声明，是为了让当前 C++ 文件知道：
+ *     kernels/rmsnorm/rmsnorm_kernel.cu
  *
- *     rmsnorm_cuda_launcher(...)
+ * 当前 C++ 文件只需要知道它的：
  *
- * 这个函数存在，并且可以被调用。
- *
- * 参数：
- *
- *     x:
- *         输入 CUDA 张量。
- *
- *     weight:
- *         RMSNorm 的缩放权重。
- *
- *     eps:
- *         防止除以零的数值稳定常数。
- *
- * 返回值：
- *
- *     与 x 形状相同的 CUDA 输出张量。
+ *     - 函数名称；
+ *     - 参数类型；
+ *     - 返回值类型。
  */
 torch::Tensor rmsnorm_cuda_launcher(
     torch::Tensor x,
@@ -58,36 +61,62 @@ torch::Tensor rmsnorm_cuda_launcher(
 
 
 /*
- * RMSNorm CUDA 前向接口。
+ * 声明 Warp Shuffle CUDA Launcher。
  *
- * Python 最终会调用这个函数。
+ * 该函数真正的定义位于：
  *
- * 该函数不会直接执行 GPU 计算，而是先完成输入检查，
- * 确认参数正确后，再调用 rmsnorm_cuda_launcher()。
+ *     kernels/rmsnorm/rmsnorm_warp_kernel.cu
  */
-torch::Tensor rmsnorm_forward(
+torch::Tensor rmsnorm_warp_cuda_launcher(
     torch::Tensor x,
     torch::Tensor weight,
+    double eps
+);
+
+
+/*
+ * RMSNorm 公共输入检查函数。
+ *
+ * Naive 版本与 Warp 版本具有相同的输入要求，
+ * 因此把检查逻辑提取到一个公共函数中。
+ *
+ * 这样可以避免：
+ *
+ *     rmsnorm_forward()
+ *
+ * 和：
+ *
+ *     rmsnorm_warp_forward()
+ *
+ * 各自维护一套重复的检查代码。
+ *
+ *
+ * 参数使用 const 引用：
+ *
+ *     const torch::Tensor&
+ *
+ * 表示：
+ *
+ *     - 不复制 Tensor 对象；
+ *     - 当前函数不会修改 Tensor；
+ *     - 只读取 Tensor 的属性。
+ */
+void validate_rmsnorm_inputs(
+    const torch::Tensor& x,
+    const torch::Tensor& weight,
     double eps
 ) {
     /*
      * 检查一：x 必须位于 CUDA 设备。
      *
-     * 自定义 CUDA Kernel 不能直接处理 CPU 张量。
-     *
-     * 正确示例：
-     *
-     *     x.device == cuda:0
-     *
-     * 错误示例：
-     *
-     *     x.device == cpu
+     * 自定义 CUDA Kernel 无法直接读取 CPU 内存。
      */
     TORCH_CHECK(
         x.is_cuda(),
         "x must be a CUDA tensor, but received device=",
         x.device()
     );
+
 
     /*
      * 检查二：weight 也必须位于 CUDA 设备。
@@ -98,11 +127,12 @@ torch::Tensor rmsnorm_forward(
         weight.device()
     );
 
+
     /*
-     * 检查三：x 和 weight 必须位于同一个 CUDA 设备。
+     * 检查三：x 和 weight 必须位于同一个设备。
      *
-     * 当前 Jetson 只有一个 GPU，但仍然保留这个检查，
-     * 这样接口逻辑更完整，也便于以后迁移到多 GPU 环境。
+     * 当前 Jetson 一般只有 cuda:0，
+     * 但保留该检查能够提高接口完整性。
      */
     TORCH_CHECK(
         x.device() == weight.device(),
@@ -113,25 +143,32 @@ torch::Tensor rmsnorm_forward(
         weight.device()
     );
 
+
     /*
      * 检查四：x 至少应有一个维度。
      *
-     * RMSNorm 会沿最后一个维度进行归一化。
-     * 标量张量没有最后一个维度，因此不能参与计算。
+     * RMSNorm 沿最后一个维度执行。
+     *
+     * 标量张量：
+     *
+     *     shape = []
+     *
+     * 不存在最后一个维度，因此不能计算 RMSNorm。
      */
     TORCH_CHECK(
         x.dim() >= 1,
         "x must have at least one dimension"
     );
 
+
     /*
      * 检查五：weight 必须是一维张量。
      *
-     * 正确形状：
+     * 正确形式：
      *
      *     [hidden_size]
      *
-     * 错误形状：
+     * 错误形式：
      *
      *     [1, hidden_size]
      */
@@ -141,29 +178,45 @@ torch::Tensor rmsnorm_forward(
         weight.dim()
     );
 
+
     /*
-     * 读取输入最后一个维度的大小。
+     * 读取 x 最后一个维度的大小。
      *
      * 例如：
      *
-     *     x.shape = [2, 3, 4096]
+     *     x.shape = [2, 8, 4096]
      *
      * 则：
      *
      *     hidden_size = 4096
      */
-    const int64_t hidden_size = x.size(-1);
+    const int64_t hidden_size =
+        x.size(-1);
+
 
     /*
      * 检查六：hidden_size 必须大于零。
+     *
+     * 形如：
+     *
+     *     [2, 0]
+     *
+     * 的张量不能执行 RMSNorm。
+     *
+     * 但形如：
+     *
+     *     [0, 128]
+     *
+     * 的空行输入是允许的，因为 hidden_size 仍然为 128。
      */
     TORCH_CHECK(
         hidden_size > 0,
         "the last dimension of x must be greater than zero"
     );
 
+
     /*
-     * 检查七：weight 的元素数量必须等于 hidden_size。
+     * 检查七：weight 元素数量必须等于 hidden_size。
      *
      * 每个隐藏维度都需要一个对应的缩放权重。
      */
@@ -176,42 +229,47 @@ torch::Tensor rmsnorm_forward(
         weight.numel()
     );
 
+
     /*
-     * 检查八：Naive 版本暂时只支持 FP32 输入。
+     * 检查八：当前 CUDA Kernel 只支持 FP32 输入。
      *
-     * 我们先把最简单、最容易验证的 FP32 Kernel 跑通。
-     *
-     * FP16、half2 和向量化优化会在后续阶段实现。
+     * FP16、BF16、half2 等类型将在后续阶段实现。
      */
     TORCH_CHECK(
         x.scalar_type() == torch::kFloat32,
-        "the naive RMSNorm CUDA kernel currently supports only float32 x, ",
+        "the RMSNorm CUDA kernels currently support only float32 x, ",
         "but received dtype=",
         x.scalar_type()
     );
 
+
     /*
-     * 检查九：weight 同样暂时只支持 FP32。
+     * 检查九：weight 当前也只支持 FP32。
      */
     TORCH_CHECK(
         weight.scalar_type() == torch::kFloat32,
-        "the naive RMSNorm CUDA kernel currently supports only float32 weight, ",
+        "the RMSNorm CUDA kernels currently support only float32 weight, ",
         "but received dtype=",
         weight.scalar_type()
     );
 
+
     /*
-     * 检查十：x 必须在内存中连续。
+     * 检查十：x 必须采用连续内存布局。
      *
-     * CUDA Kernel 会按照线性地址读取数据。
+     * CUDA Kernel 会按照：
      *
-     * 如果张量不是 contiguous，
-     * 它的逻辑索引和物理内存位置可能不连续。
+     *     row_offset + column
+     *
+     * 的方式线性访问数据。
+     *
+     * 非连续张量的逻辑索引与物理地址不一定连续。
      */
     TORCH_CHECK(
         x.is_contiguous(),
         "x must be contiguous"
     );
+
 
     /*
      * 检查十一：weight 也必须连续。
@@ -221,24 +279,49 @@ torch::Tensor rmsnorm_forward(
         "weight must be contiguous"
     );
 
+
     /*
-     * 检查十二：eps 必须大于零。
+     * 检查十二：eps 必须严格大于零。
      *
-     * 当输入全为零时：
+     * RMSNorm 中会计算：
      *
-     *     mean(x²) = 0
+     *     1 / sqrt(mean_square + eps)
      *
-     * 如果 eps 也为零，就会出现除以零。
+     * 当输入全为零时，mean_square 等于零。
+     * eps 必须为正数，才能避免除以零。
      */
     TORCH_CHECK(
         eps > 0.0,
         "eps must be greater than zero, but received eps=",
         eps
     );
+}
+
+
+/*
+ * Naive RMSNorm 前向接口。
+ *
+ * Python 侧对应：
+ *
+ *     extension.forward(x, weight, eps)
+ */
+torch::Tensor rmsnorm_forward(
+    torch::Tensor x,
+    torch::Tensor weight,
+    double eps
+) {
+    /*
+     * 先执行统一输入检查。
+     */
+    validate_rmsnorm_inputs(
+        x,
+        weight,
+        eps
+    );
+
 
     /*
-     * 所有输入检查通过后，
-     * 调用 rmsnorm_kernel.cu 中的 CUDA 启动函数。
+     * 检查通过后，调用 Naive CUDA Launcher。
      */
     return rmsnorm_cuda_launcher(
         x,
@@ -249,34 +332,83 @@ torch::Tensor rmsnorm_forward(
 
 
 /*
- * PYBIND11_MODULE 用于把 C++ 函数注册成 Python 模块接口。
+ * Warp Shuffle RMSNorm 前向接口。
  *
- * TORCH_EXTENSION_NAME 由 PyTorch 编译扩展时自动提供。
+ * Python 侧对应：
  *
- * 注册完成后，Python 侧可以使用类似方式调用：
+ *     extension.forward_warp(x, weight, eps)
+ */
+torch::Tensor rmsnorm_warp_forward(
+    torch::Tensor x,
+    torch::Tensor weight,
+    double eps
+) {
+    /*
+     * Warp 版本与 Naive 版本使用完全相同的输入约束。
+     */
+    validate_rmsnorm_inputs(
+        x,
+        weight,
+        eps
+    );
+
+
+    /*
+     * 检查通过后，调用 Warp Shuffle CUDA Launcher。
+     */
+    return rmsnorm_warp_cuda_launcher(
+        x,
+        weight,
+        eps
+    );
+}
+
+
+/*
+ * 使用 PyBind11 注册 Python 扩展接口。
  *
- *     extension.forward(x, weight, eps)
+ * TORCH_EXTENSION_NAME 由：
+ *
+ *     torch.utils.cpp_extension.load()
+ *
+ * 在编译阶段自动提供。
  */
 PYBIND11_MODULE(
     TORCH_EXTENSION_NAME,
     module
 ) {
     /*
-     * 第一个参数 "forward"：
+     * 注册 Naive CUDA 实现。
      *
-     *     Python 侧看到的函数名称。
+     * Python 调用形式：
      *
-     * 第二个参数 &rmsnorm_forward：
-     *
-     *     对应的 C++ 函数地址。
-     *
-     * 第三个参数：
-     *
-     *     接口说明文字。
+     *     extension.forward(
+     *         x,
+     *         weight,
+     *         eps,
+     *     )
      */
     module.def(
         "forward",
         &rmsnorm_forward,
         "RMSNorm naive CUDA forward"
+    );
+
+
+    /*
+     * 注册 Warp Shuffle CUDA 实现。
+     *
+     * Python 调用形式：
+     *
+     *     extension.forward_warp(
+     *         x,
+     *         weight,
+     *         eps,
+     *     )
+     */
+    module.def(
+        "forward_warp",
+        &rmsnorm_warp_forward,
+        "RMSNorm warp shuffle CUDA forward"
     );
 }

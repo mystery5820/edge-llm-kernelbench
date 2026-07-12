@@ -1,0 +1,75 @@
+========================================================================
+EdgeLLM-KernelBench: RMSNorm Naive vs Warp
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Warmup calls:     20
+Measure rounds:   30
+Repeats/round:    50
+
+Loading RMSNorm CUDA extension...
+RMSNorm CUDA extension loaded.
+
+Case: rows=1, hidden_size=1024, elements=1024
+Naive correctness maximum error: 0.00000000e+00
+Warp correctness maximum error:  0.00000000e+00
+PyTorch Reference median: 0.239318 ms
+CUDA Naive median:        0.029276 ms
+CUDA Warp median:         0.029414 ms
+CUDA Naive vs Reference:  8.174x
+CUDA Warp vs Reference:   8.136x
+CUDA Warp vs Naive:       0.995x
+
+Case: rows=1, hidden_size=4096, elements=4096
+Naive correctness maximum error: 4.76837158e-07
+Warp correctness maximum error:  0.00000000e+00
+PyTorch Reference median: 0.238825 ms
+CUDA Naive median:        0.028436 ms
+CUDA Warp median:         0.028700 ms
+CUDA Naive vs Reference:  8.399x
+CUDA Warp vs Reference:   8.321x
+CUDA Warp vs Naive:       0.991x
+
+Case: rows=16, hidden_size=4096, elements=65536
+Naive correctness maximum error: 1.43051147e-06
+Warp correctness maximum error:  9.53674316e-07
+PyTorch Reference median: 0.240980 ms
+CUDA Naive median:        0.028725 ms
+CUDA Warp median:         0.029208 ms
+CUDA Naive vs Reference:  8.389x
+CUDA Warp vs Reference:   8.250x
+CUDA Warp vs Naive:       0.983x
+
+Case: rows=128, hidden_size=4096, elements=524288
+Naive correctness maximum error: 1.90734863e-06
+Warp correctness maximum error:  1.90734863e-06
+PyTorch Reference median: 0.243429 ms
+CUDA Naive median:        0.055555 ms
+CUDA Warp median:         0.055449 ms
+CUDA Naive vs Reference:  4.382x
+CUDA Warp vs Reference:   4.390x
+CUDA Warp vs Naive:       1.002x
+
+
+================================================================================================================
+RMSNorm Benchmark Summary
+================================================================================================================
+implementation          rows    hidden      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+----------------------------------------------------------------------------------------------------------------
+pytorch_reference          1      1024      0.240613      0.239318      0.237832      0.256190      1.000x
+cuda_naive                 1      1024      0.029440      0.029276      0.028241      0.030646      8.174x
+cuda_warp                  1      1024      0.029357      0.029414      0.027704      0.030310      8.136x
+pytorch_reference          1      4096      0.239156      0.238825      0.236125      0.242276      1.000x
+cuda_naive                 1      4096      0.028413      0.028436      0.026571      0.029373      8.399x
+cuda_warp                  1      4096      0.028618      0.028700      0.026867      0.029733      8.321x
+pytorch_reference         16      4096      0.240964      0.240980      0.238221      0.243967      1.000x
+cuda_naive                16      4096      0.028774      0.028725      0.027425      0.029952      8.389x
+cuda_warp                 16      4096      0.029119      0.029208      0.028136      0.029773      8.250x
+pytorch_reference        128      4096      0.243078      0.243429      0.239110      0.246749      1.000x
+cuda_naive               128      4096      0.055565      0.055555      0.055413      0.055725      4.382x
+cuda_warp                128      4096      0.055455      0.055449      0.055309      0.055570      4.390x
+================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/rmsnorm_warp_comparison_20260712_175730.csv

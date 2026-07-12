@@ -1,10 +1,11 @@
 """
 RMSNorm 性能基线 Benchmark。
 
-本脚本用于比较两种 RMSNorm 实现：
+本脚本用于比较三种 RMSNorm 实现：
 
 1. PyTorch Reference
 2. 自定义 FP32 Naive CUDA Kernel
+3. 自定义 FP32 Warp Shuffle CUDA Kernel
 
 测试流程：
 
@@ -83,6 +84,7 @@ from edge_kernelbench.rmsnorm import rmsnorm_reference
 from edge_kernelbench.rmsnorm_cuda import (
     load_rmsnorm_cuda_extension,
     rmsnorm_cuda,
+    rmsnorm_cuda_warp,
 )
 
 
@@ -181,8 +183,8 @@ def parse_arguments() -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Benchmark PyTorch RMSNorm reference "
-            "against the custom naive CUDA kernel."
+            "Benchmark PyTorch RMSNorm reference against "
+            "the custom naive and warp CUDA kernels."
         )
     )
 
@@ -414,40 +416,66 @@ def verify_correctness(
     x: torch.Tensor,
     weight: torch.Tensor,
     eps: float,
-) -> float:
+) -> tuple[float, float]:
     """
-    在性能测试前检查自定义 CUDA Kernel 的数值正确性。
+    在性能测试前检查两个自定义 CUDA Kernel 的数值正确性。
 
-    返回最大绝对误差。
+    返回
+    ----
+    tuple[float, float]
+        第一个元素是 Naive CUDA 相对 Reference 的最大绝对误差。
+
+        第二个元素是 Warp CUDA 相对 Reference 的最大绝对误差。
     """
 
     with torch.inference_mode():
-        expected = rmsnorm_reference(
+        reference_output = rmsnorm_reference(
             x,
             weight,
             eps,
         )
 
-        actual = rmsnorm_cuda(
+        naive_output = rmsnorm_cuda(
             x,
             weight,
             eps,
         )
 
+        warp_output = rmsnorm_cuda_warp(
+            x,
+            weight,
+            eps,
+        )
+
+        # 等待三种实现全部执行完成后再读取和比较结果。
         torch.cuda.synchronize()
 
-        maximum_absolute_error = (
-            expected - actual
+        naive_maximum_error = (
+            reference_output - naive_output
+        ).abs().max().item()
+
+        warp_maximum_error = (
+            reference_output - warp_output
         ).abs().max().item()
 
         torch.testing.assert_close(
-            actual,
-            expected,
+            naive_output,
+            reference_output,
             rtol=1e-5,
             atol=1e-6,
         )
 
-    return maximum_absolute_error
+        torch.testing.assert_close(
+            warp_output,
+            reference_output,
+            rtol=1e-5,
+            atol=1e-6,
+        )
+
+    return (
+        naive_maximum_error,
+        warp_maximum_error,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +508,10 @@ def run_benchmark_case(
         dtype=torch.float32,
     )
 
-    maximum_error = verify_correctness(
+    (
+        naive_maximum_error,
+        warp_maximum_error,
+    ) = verify_correctness(
         x,
         weight,
         eps,
@@ -493,8 +524,13 @@ def run_benchmark_case(
     )
 
     print(
-        "Correctness maximum absolute error: "
-        f"{maximum_error:.8e}"
+        "Naive correctness maximum error: "
+        f"{naive_maximum_error:.8e}"
+    )
+
+    print(
+        "Warp correctness maximum error:  "
+        f"{warp_maximum_error:.8e}"
     )
 
     # 使用 lambda 固定输入参数，
@@ -506,6 +542,13 @@ def run_benchmark_case(
     )
 
     cuda_naive_function = lambda: rmsnorm_cuda(
+        x,
+        weight,
+        eps,
+    )
+
+    # Warp Shuffle Reduce CUDA 实现。
+    cuda_warp_function = lambda: rmsnorm_cuda_warp(
         x,
         weight,
         eps,
@@ -525,6 +568,13 @@ def run_benchmark_case(
         repeats_per_round=repeats_per_round,
     )
 
+    warp_statistics = benchmark_cuda_callable(
+        function=cuda_warp_function,
+        warmup_iterations=warmup_iterations,
+        measurement_rounds=measurement_rounds,
+        repeats_per_round=repeats_per_round,
+    )
+
     # 加速比采用 median 延迟计算：
     #
     #     speedup = reference_time / custom_time
@@ -534,9 +584,24 @@ def run_benchmark_case(
     #
     # speedup < 1：
     #     自定义 Kernel 更慢。
-    speedup = (
+    naive_speedup = (
         reference_statistics.median_ms
         / cuda_statistics.median_ms
+    )
+
+    warp_speedup = (
+        reference_statistics.median_ms
+        / warp_statistics.median_ms
+    )
+
+    # Warp 相对于 Naive 的加速比：
+    #
+    #     naive_latency / warp_latency
+    #
+    # 大于 1 表示 Warp 版本更快。
+    warp_speedup_vs_naive = (
+        cuda_statistics.median_ms
+        / warp_statistics.median_ms
     )
 
     reference_result = BenchmarkResult(
@@ -566,7 +631,22 @@ def run_benchmark_case(
         median_ms=cuda_statistics.median_ms,
         minimum_ms=cuda_statistics.minimum_ms,
         p95_ms=cuda_statistics.p95_ms,
-        speedup_vs_reference=speedup,
+        speedup_vs_reference=naive_speedup,
+    )
+
+    warp_result = BenchmarkResult(
+        implementation="cuda_warp",
+        rows=case.rows,
+        hidden_size=case.hidden_size,
+        elements=case.numel,
+        warmup_iterations=warmup_iterations,
+        measurement_rounds=measurement_rounds,
+        repeats_per_round=repeats_per_round,
+        mean_ms=warp_statistics.mean_ms,
+        median_ms=warp_statistics.median_ms,
+        minimum_ms=warp_statistics.minimum_ms,
+        p95_ms=warp_statistics.p95_ms,
+        speedup_vs_reference=warp_speedup,
     )
 
     print(
@@ -580,13 +660,29 @@ def run_benchmark_case(
     )
 
     print(
-        "CUDA Naive speedup:       "
-        f"{speedup:.3f}x"
+        "CUDA Warp median:         "
+        f"{warp_statistics.median_ms:.6f} ms"
+    )
+
+    print(
+        "CUDA Naive vs Reference:  "
+        f"{naive_speedup:.3f}x"
+    )
+
+    print(
+        "CUDA Warp vs Reference:   "
+        f"{warp_speedup:.3f}x"
+    )
+
+    print(
+        "CUDA Warp vs Naive:       "
+        f"{warp_speedup_vs_naive:.3f}x"
     )
 
     return [
         reference_result,
         cuda_result,
+        warp_result,
     ]
 
 
@@ -615,7 +711,7 @@ def print_summary_table(
         f"{'median(ms)':>14}"
         f"{'min(ms)':>14}"
         f"{'p95(ms)':>14}"
-        f"{'speedup':>12}"
+        f"{'vs_ref':>12}"
     )
 
     print(header)
@@ -661,7 +757,7 @@ def save_results_to_csv(
 
     output_path = (
         results_directory
-        / f"rmsnorm_baseline_{timestamp}.csv"
+        / f"rmsnorm_warp_comparison_{timestamp}.csv"
     )
 
     device_name = torch.cuda.get_device_name(0)
@@ -695,6 +791,7 @@ def save_results_to_csv(
         writer = csv.DictWriter(
             csv_file,
             fieldnames=fieldnames,
+            lineterminator="\n",
         )
 
         writer.writeheader()
@@ -745,7 +842,7 @@ def main() -> None:
         )
 
     print("=" * 72)
-    print("EdgeLLM-KernelBench: RMSNorm Baseline")
+    print("EdgeLLM-KernelBench: RMSNorm Naive vs Warp")
     print("=" * 72)
 
     print(
