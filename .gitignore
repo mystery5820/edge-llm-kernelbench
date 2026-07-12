@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.o
+*.so
+
+# PyTorch CUDA extension cache
+.torch_extensions/
+
+# Editor
+.vscode/
+.idea/
+
+# System files
+.DS_Store
