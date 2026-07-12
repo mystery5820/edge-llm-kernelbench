@@ -4,12 +4,68 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm Phase 3 已完成；RoPE Naive CUDA Kernel 已完成并验证
-> 下一任务：RoPE 优化版本与性能分析
+> 最新状态：RMSNorm Phase 3 已完成；RoPE Naive 与 Float4 CUDA Kernel 已完成并验证
+> 下一任务：RoPE 性能分析文档或 INT8 Dequant-GEMV
 
 ---
 
 ## 0. 最新进展更新（2026-07-12 23:00）
+
+### 0.0 RoPE Phase 3 更新（2026-07-12 23:11）
+
+RoPE Float4 CUDA Kernel 已完成：
+
+- 新增 `kernels/rope/rope_float4_kernel.cu`；
+- C++ 新增 `forward_float4`；
+- Python 新增 `rope_cuda_float4()`；
+- 新增 `tests/test_rope_float4.py`；
+- `benchmarks/benchmark_rope.py` 已扩展为 PyTorch / CUDA Naive / CUDA Float4 三方比较；
+- 常见 `head_dim=64/128` 且 q/k/output 16 字节对齐时走 float4；
+- `head_dim % 4 != 0` 或首地址不对齐时自动回退标量路径。
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/rope_cuda.py tests/test_rope_float4.py benchmarks/benchmark_rope.py
+通过
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_rope_float4.py -v
+10 passed in 3.28s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+110 passed in 3.89s
+```
+
+正式 benchmark 参数：
+
+```text
+warmup=20
+rounds=30
+repeats=50
+```
+
+结果文件：
+
+```text
+results/rope_float4_comparison_20260712_231133.csv
+results/rope_float4_comparison_console_20260712_231115.log
+```
+
+RoPE Float4 相对 PyTorch Reference / Naive：
+
+```text
+seq=128,  heads=8,  head_dim=64：  vs Reference 22.404x，vs Naive 1.033x
+seq=512,  heads=8,  head_dim=64：  vs Reference 15.702x，vs Naive 1.006x
+seq=1024, heads=16, head_dim=64： vs Reference 7.593x， vs Naive 1.006x
+seq=2048, heads=16, head_dim=128：vs Reference 7.317x， vs Naive 1.004x
+```
+
+当前结论：
+
+```text
+RoPE Float4 数值正确。
+相比 Naive 有稳定但幅度较小的加速，主要收益在小规模 case 更明显。
+```
 
 ### 0.1 RoPE Phase 2 更新（2026-07-12 23:00）
 

@@ -1,11 +1,12 @@
 """
 RoPE CUDA 扩展的 Python 加载与调用接口。
 
-当前扩展包含一个实现：
+当前扩展包含两个实现：
 
     rope_cuda(q, k, cos, sin)
+    rope_cuda_float4(q, k, cos, sin)
 
-对应 FP32 Naive CUDA Kernel。
+分别对应 FP32 Naive CUDA Kernel 和 FP32 float4 向量化 CUDA Kernel。
 """
 
 from pathlib import Path
@@ -63,9 +64,15 @@ def load_rope_cuda_extension(
         / "rope_kernel.cu"
     )
 
+    float4_cuda_source = (
+        kernel_directory
+        / "rope_float4_kernel.cu"
+    )
+
     sources = [
         cpp_source,
         cuda_source,
+        float4_cuda_source,
     ]
 
     missing_sources = [
@@ -132,6 +139,34 @@ def rope_cuda(
     extension = load_rope_cuda_extension()
 
     q_output, k_output = extension.forward(
+        q,
+        k,
+        cos,
+        sin,
+    )
+
+    return (
+        q_output,
+        k_output,
+    )
+
+
+def rope_cuda_float4(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    调用 RoPE FP32 float4 向量化 CUDA Kernel。
+
+    当 head_dim 不能被 4 整除，或 q/k/output 基址不满足 16 字节对齐时，
+    CUDA kernel 会自动回退到标量路径。
+    """
+
+    extension = load_rope_cuda_extension()
+
+    q_output, k_output = extension.forward_float4(
         q,
         k,
         cos,

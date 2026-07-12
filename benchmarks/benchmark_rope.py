@@ -5,6 +5,7 @@ RoPE 性能 Benchmark。
 
 1. PyTorch Reference
 2. 自定义 FP32 Naive CUDA Kernel
+3. 自定义 FP32 float4 CUDA Kernel
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from edge_kernelbench.rope import rope_reference
 from edge_kernelbench.rope_cuda import (
     load_rope_cuda_extension,
     rope_cuda,
+    rope_cuda_float4,
 )
 
 
@@ -90,7 +92,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark PyTorch RoPE reference against "
-            "the custom naive CUDA kernel."
+            "the custom naive and float4 CUDA kernels."
         )
     )
 
@@ -220,7 +222,7 @@ def verify_correctness(
     k: torch.Tensor,
     cos: torch.Tensor,
     sin: torch.Tensor,
-) -> tuple[float, float]:
+) -> tuple[float, float, float, float]:
     with torch.inference_mode():
         reference_q, reference_k = rope_reference(
             q,
@@ -230,6 +232,13 @@ def verify_correctness(
         )
 
         cuda_q, cuda_k = rope_cuda(
+            q,
+            k,
+            cos,
+            sin,
+        )
+
+        float4_q, float4_k = rope_cuda_float4(
             q,
             k,
             cos,
@@ -246,6 +255,14 @@ def verify_correctness(
             reference_k - cuda_k
         ).abs().max().item()
 
+        float4_q_maximum_error = (
+            reference_q - float4_q
+        ).abs().max().item()
+
+        float4_k_maximum_error = (
+            reference_k - float4_k
+        ).abs().max().item()
+
         torch.testing.assert_close(
             cuda_q,
             reference_q,
@@ -260,9 +277,25 @@ def verify_correctness(
             atol=1e-6,
         )
 
+        torch.testing.assert_close(
+            float4_q,
+            reference_q,
+            rtol=1e-6,
+            atol=1e-6,
+        )
+
+        torch.testing.assert_close(
+            float4_k,
+            reference_k,
+            rtol=1e-6,
+            atol=1e-6,
+        )
+
     return (
         q_maximum_error,
         k_maximum_error,
+        float4_q_maximum_error,
+        float4_k_maximum_error,
     )
 
 
@@ -297,7 +330,12 @@ def run_benchmark_case(
         angles
     ).contiguous()
 
-    q_maximum_error, k_maximum_error = verify_correctness(
+    (
+        q_maximum_error,
+        k_maximum_error,
+        float4_q_maximum_error,
+        float4_k_maximum_error,
+    ) = verify_correctness(
         q,
         k,
         cos,
@@ -321,6 +359,16 @@ def run_benchmark_case(
         f"{k_maximum_error:.8e}"
     )
 
+    print(
+        "Float4 Q correctness maximum error: "
+        f"{float4_q_maximum_error:.8e}"
+    )
+
+    print(
+        "Float4 K correctness maximum error: "
+        f"{float4_k_maximum_error:.8e}"
+    )
+
     reference_function = lambda: rope_reference(
         q,
         k,
@@ -329,6 +377,13 @@ def run_benchmark_case(
     )
 
     cuda_function = lambda: rope_cuda(
+        q,
+        k,
+        cos,
+        sin,
+    )
+
+    float4_function = lambda: rope_cuda_float4(
         q,
         k,
         cos,
@@ -349,9 +404,26 @@ def run_benchmark_case(
         repeats_per_round=repeats_per_round,
     )
 
+    float4_statistics = benchmark_cuda_callable(
+        function=float4_function,
+        warmup_iterations=warmup_iterations,
+        measurement_rounds=measurement_rounds,
+        repeats_per_round=repeats_per_round,
+    )
+
     speedup = (
         reference_statistics.median_ms
         / cuda_statistics.median_ms
+    )
+
+    float4_speedup = (
+        reference_statistics.median_ms
+        / float4_statistics.median_ms
+    )
+
+    float4_speedup_vs_naive = (
+        cuda_statistics.median_ms
+        / float4_statistics.median_ms
     )
 
     print(
@@ -365,8 +437,23 @@ def run_benchmark_case(
     )
 
     print(
+        "CUDA Float4 median:       "
+        f"{float4_statistics.median_ms:.6f} ms"
+    )
+
+    print(
         "CUDA Naive vs Reference:  "
         f"{speedup:.3f}x"
+    )
+
+    print(
+        "CUDA Float4 vs Reference: "
+        f"{float4_speedup:.3f}x"
+    )
+
+    print(
+        "CUDA Float4 vs Naive:     "
+        f"{float4_speedup_vs_naive:.3f}x"
     )
 
     return [
@@ -399,6 +486,21 @@ def run_benchmark_case(
             minimum_ms=cuda_statistics.minimum_ms,
             p95_ms=cuda_statistics.p95_ms,
             speedup_vs_reference=speedup,
+        ),
+        BenchmarkResult(
+            implementation="cuda_float4",
+            seq_len=case.seq_len,
+            num_heads=case.num_heads,
+            head_dim=case.head_dim,
+            elements_per_tensor=case.elements_per_tensor,
+            warmup_iterations=warmup_iterations,
+            measurement_rounds=measurement_rounds,
+            repeats_per_round=repeats_per_round,
+            mean_ms=float4_statistics.mean_ms,
+            median_ms=float4_statistics.median_ms,
+            minimum_ms=float4_statistics.minimum_ms,
+            p95_ms=float4_statistics.p95_ms,
+            speedup_vs_reference=float4_speedup,
         ),
     ]
 
@@ -461,7 +563,7 @@ def save_results_to_csv(
 
     output_path = (
         results_directory
-        / f"rope_naive_comparison_{timestamp}.csv"
+        / f"rope_float4_comparison_{timestamp}.csv"
     )
 
     fieldnames = [
@@ -535,7 +637,7 @@ def main() -> None:
         )
 
     print("=" * 72)
-    print("EdgeLLM-KernelBench: RoPE PyTorch vs CUDA Naive")
+    print("EdgeLLM-KernelBench: RoPE PyTorch vs CUDA Naive vs Float4")
     print("=" * 72)
     print("PyTorch version: ", torch.__version__)
     print("CUDA version:    ", torch.version.cuda)

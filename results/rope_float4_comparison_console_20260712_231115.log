@@ -1,0 +1,83 @@
+========================================================================
+EdgeLLM-KernelBench: RoPE PyTorch vs CUDA Naive vs Float4
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Warmup calls:     20
+Measure rounds:   30
+Repeats/round:    50
+
+Loading RoPE CUDA extension...
+RoPE CUDA extension loaded.
+
+Case: seq_len=128, num_heads=8, head_dim=64, elements_per_tensor=65536
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+Float4 Q correctness maximum error: 2.38418579e-07
+Float4 K correctness maximum error: 2.38418579e-07
+PyTorch Reference median: 0.807030 ms
+CUDA Naive median:        0.037198 ms
+CUDA Float4 median:       0.036022 ms
+CUDA Naive vs Reference:  21.695x
+CUDA Float4 vs Reference: 22.404x
+CUDA Float4 vs Naive:     1.033x
+
+Case: seq_len=512, num_heads=8, head_dim=64, elements_per_tensor=262144
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+Float4 Q correctness maximum error: 4.76837158e-07
+Float4 K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 0.809436 ms
+CUDA Naive median:        0.051836 ms
+CUDA Float4 median:       0.051549 ms
+CUDA Naive vs Reference:  15.615x
+CUDA Float4 vs Reference: 15.702x
+CUDA Float4 vs Naive:     1.006x
+
+Case: seq_len=1024, num_heads=16, head_dim=64, elements_per_tensor=1048576
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+Float4 Q correctness maximum error: 4.76837158e-07
+Float4 K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 1.380095 ms
+CUDA Naive median:        0.182848 ms
+CUDA Float4 median:       0.181752 ms
+CUDA Naive vs Reference:  7.548x
+CUDA Float4 vs Reference: 7.593x
+CUDA Float4 vs Naive:     1.006x
+
+Case: seq_len=2048, num_heads=16, head_dim=128, elements_per_tensor=4194304
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+Float4 Q correctness maximum error: 4.76837158e-07
+Float4 K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 5.161007 ms
+CUDA Naive median:        0.708220 ms
+CUDA Float4 median:       0.705388 ms
+CUDA Naive vs Reference:  7.287x
+CUDA Float4 vs Reference: 7.317x
+CUDA Float4 vs Naive:     1.004x
+
+
+==================================================================================================================
+RoPE Benchmark Summary
+==================================================================================================================
+implementation           seq   heads  head_dim      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+------------------------------------------------------------------------------------------------------------------
+pytorch_reference        128       8        64      0.807936      0.807030      0.801956      0.812266      1.000x
+cuda_naive               128       8        64      0.037026      0.037198      0.034552      0.038202     21.695x
+cuda_float4              128       8        64      0.035990      0.036022      0.033620      0.037953     22.404x
+pytorch_reference        512       8        64      0.809524      0.809436      0.801040      0.815448      1.000x
+cuda_naive               512       8        64      0.051861      0.051836      0.051709      0.051995     15.615x
+cuda_float4              512       8        64      0.051563      0.051549      0.051436      0.051711     15.702x
+pytorch_reference       1024      16        64      1.381516      1.380095      1.379418      1.388604      1.000x
+cuda_naive              1024      16        64      0.182868      0.182848      0.182722      0.182999      7.548x
+cuda_float4             1024      16        64      0.181785      0.181752      0.181593      0.181985      7.593x
+pytorch_reference       2048      16       128      5.162020      5.161007      5.159995      5.170078      1.000x
+cuda_naive              2048      16       128      0.708322      0.708220      0.708034      0.709261      7.287x
+cuda_float4             2048      16       128      0.705840      0.705388      0.705099      0.710164      7.317x
+==================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/rope_float4_comparison_20260712_231133.csv

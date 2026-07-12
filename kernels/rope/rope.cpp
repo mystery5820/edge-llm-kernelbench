@@ -1,7 +1,10 @@
 /*
  * RoPE CUDA 扩展的 PyTorch C++ 接口层。
  *
- * 当前只包含 FP32 Naive CUDA 实现。
+ * 当前包含：
+ *
+ * - FP32 Naive CUDA 实现；
+ * - FP32 float4 向量化 CUDA 实现。
  */
 
 #include <torch/extension.h>
@@ -10,6 +13,14 @@
 
 
 std::vector<torch::Tensor> rope_cuda_launcher(
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor cos,
+    torch::Tensor sin
+);
+
+
+std::vector<torch::Tensor> rope_float4_cuda_launcher(
     torch::Tensor q,
     torch::Tensor k,
     torch::Tensor cos,
@@ -201,6 +212,28 @@ std::vector<torch::Tensor> rope_forward(
 }
 
 
+std::vector<torch::Tensor> rope_float4_forward(
+    torch::Tensor q,
+    torch::Tensor k,
+    torch::Tensor cos,
+    torch::Tensor sin
+) {
+    validate_rope_inputs(
+        q,
+        k,
+        cos,
+        sin
+    );
+
+    return rope_float4_cuda_launcher(
+        q,
+        k,
+        cos,
+        sin
+    );
+}
+
+
 PYBIND11_MODULE(
     TORCH_EXTENSION_NAME,
     module
@@ -209,5 +242,11 @@ PYBIND11_MODULE(
         "forward",
         &rope_forward,
         "RoPE naive CUDA forward"
+    );
+
+    module.def(
+        "forward_float4",
+        &rope_float4_forward,
+        "RoPE float4 vectorized CUDA forward"
     );
 }

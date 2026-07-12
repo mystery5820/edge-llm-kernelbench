@@ -49,7 +49,7 @@
 - [x] RMSNorm Optimization Report
 - [x] RoPE PyTorch Reference
 - [x] RoPE CUDA Naive Kernel
-- [ ] RoPE CUDA Optimized Kernel
+- [x] RoPE CUDA Optimized Kernel
 - [ ] INT8 Dequant-GEMV CUDA Kernel
 
 ## 项目目标
