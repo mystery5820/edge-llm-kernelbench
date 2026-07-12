@@ -3,15 +3,84 @@
 > 建议工程路径：`docs/current_progress_codex_handoff.md`  
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
-> 当前主线：RMSNorm CUDA 算子优化  
-> 最新状态：Phase 3 `float4` 向量化访存优化已完成并验证
-> 下一任务：整理 Phase 3 性能结论，准备下一阶段算子或 RMSNorm 后续优化
+> 当前主线：RoPE CUDA 算子开发
+> 最新状态：RMSNorm Phase 3 已完成；RoPE Naive CUDA Kernel 已完成并验证
+> 下一任务：RoPE 优化版本与性能分析
 
 ---
 
-## 0. 最新进展更新（2026-07-12 22:11）
+## 0. 最新进展更新（2026-07-12 23:00）
 
-### 0.1 RoPE Phase 1 更新（2026-07-12 22:24）
+### 0.1 RoPE Phase 2 更新（2026-07-12 23:00）
+
+RoPE Naive CUDA Kernel 已完成：
+
+- 新增 `kernels/rope/rope.cpp`；
+- 新增 `kernels/rope/rope_kernel.cu`；
+- 新增 `python/edge_kernelbench/rope_cuda.py`；
+- 新增 `tests/test_rope_cuda.py`；
+- 新增 `benchmarks/benchmark_rope.py`；
+- 支持 FP32 CUDA contiguous 输入；
+- 支持 q/k 形状：
+  - `[seq_len, head_dim]`
+  - `[seq_len, num_heads, head_dim]`
+  - `[batch_size, seq_len, num_heads, head_dim]`
+- 支持 cos/sin 形状：
+  - `[head_dim / 2]`
+  - `[seq_len, head_dim / 2]`
+- 每个 CUDA 线程处理一个 even/odd pair，并同时处理 q 和 k；
+- 空序列输入会直接返回空输出，不启动 kernel。
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/rope_cuda.py tests/test_rope_cuda.py benchmarks/benchmark_rope.py
+通过
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_rope_cuda.py -v
+12 passed in 3.17s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+100 passed in 3.85s
+```
+
+正式 benchmark 参数：
+
+```text
+warmup=20
+rounds=30
+repeats=50
+```
+
+结果文件：
+
+```text
+results/rope_naive_comparison_20260712_230056.csv
+results/rope_naive_comparison_console_20260712_230039.log
+```
+
+RoPE Naive CUDA 相对 PyTorch Reference：
+
+```text
+seq=128,  heads=8,  head_dim=64： 21.436x
+seq=512,  heads=8,  head_dim=64： 16.030x
+seq=1024, heads=16, head_dim=64： 7.549x
+seq=2048, heads=16, head_dim=128：7.289x
+```
+
+说明：
+
+```text
+本次 RoPE benchmark 使用正式参数，但未执行需要 sudo 的 nvpmodel / jetson_clocks 锁频命令。
+```
+
+RoPE 下一步：
+
+```text
+Phase 3：实现 RoPE 优化版本，例如 float2/float4 向量化、half2 或更细化的访存策略。
+```
+
+### 0.2 RoPE Phase 1 更新（2026-07-12 22:24）
 
 RoPE PyTorch Reference 已完成：
 
@@ -44,10 +113,10 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 RoPE 下一步：
 
 ```text
-Phase 2：实现 RoPE CUDA Naive Kernel 和 benchmark。
+Phase 2 已完成，当前下一步为 RoPE 优化版本。
 ```
 
-### 0.2 RMSNorm Phase 3 更新（2026-07-12 22:11）
+### 0.3 RMSNorm Phase 3 更新（2026-07-12 22:11）
 
 Phase 3 已完成：
 

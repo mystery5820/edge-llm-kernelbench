@@ -1,0 +1,59 @@
+========================================================================
+EdgeLLM-KernelBench: RoPE PyTorch vs CUDA Naive
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Warmup calls:     20
+Measure rounds:   30
+Repeats/round:    50
+
+Loading RoPE CUDA extension...
+RoPE CUDA extension loaded.
+
+Case: seq_len=128, num_heads=8, head_dim=64, elements_per_tensor=65536
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 0.827812 ms
+CUDA Naive median:        0.038617 ms
+CUDA Naive vs Reference:  21.436x
+
+Case: seq_len=512, num_heads=8, head_dim=64, elements_per_tensor=262144
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 0.830703 ms
+CUDA Naive median:        0.051822 ms
+CUDA Naive vs Reference:  16.030x
+
+Case: seq_len=1024, num_heads=16, head_dim=64, elements_per_tensor=1048576
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 1.379601 ms
+CUDA Naive median:        0.182754 ms
+CUDA Naive vs Reference:  7.549x
+
+Case: seq_len=2048, num_heads=16, head_dim=128, elements_per_tensor=4194304
+Q correctness maximum error: 4.76837158e-07
+K correctness maximum error: 4.76837158e-07
+PyTorch Reference median: 5.161549 ms
+CUDA Naive median:        0.708149 ms
+CUDA Naive vs Reference:  7.289x
+
+
+==================================================================================================================
+RoPE Benchmark Summary
+==================================================================================================================
+implementation           seq   heads  head_dim      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+------------------------------------------------------------------------------------------------------------------
+pytorch_reference        128       8        64      0.829411      0.827812      0.823507      0.836033      1.000x
+cuda_naive               128       8        64      0.038534      0.038617      0.035644      0.040952     21.436x
+pytorch_reference        512       8        64      0.830791      0.830703      0.823436      0.836829      1.000x
+cuda_naive               512       8        64      0.051825      0.051822      0.051682      0.051908     16.030x
+pytorch_reference       1024      16        64      1.380954      1.379601      1.378873      1.386144      1.000x
+cuda_naive              1024      16        64      0.182764      0.182754      0.182662      0.182914      7.549x
+pytorch_reference       2048      16       128      5.163274      5.161549      5.160341      5.174635      1.000x
+cuda_naive              2048      16       128      0.708291      0.708149      0.707825      0.709573      7.289x
+==================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/rope_naive_comparison_20260712_230056.csv
