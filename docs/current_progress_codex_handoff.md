@@ -4,14 +4,57 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成
-> 下一任务：INT8 Dequant-GEMV
+> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成；INT8 Dequant-GEMV Reference 已完成
+> 下一任务：INT8 Dequant-GEMV CUDA Naive Kernel
 
 ---
 
 ## 0. 最新进展更新（2026-07-12 23:00）
 
-### 0.0 RoPE Phase 3 更新（2026-07-12 23:11）
+### 0.0 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
+
+INT8 Dequant-GEMV PyTorch Reference 已完成：
+
+- 新增 `python/edge_kernelbench/int8_dequant_gemv.py`；
+- 新增 `tests/test_int8_dequant_gemv.py`；
+- API：
+  - `int8_dequant_gemv_reference(x, weight_int8, scale, bias=None)`
+  - `INT8DequantGEMVReference`
+- 数学定义：
+
+```text
+dequant_weight = weight_int8.float() * scale[:, None]
+output = x @ dequant_weight.T + bias
+```
+
+- 支持 `x` 形状 `[..., in_features]`；
+- 支持 `weight_int8` 形状 `[out_features, in_features]`；
+- 支持 per-output scale `[out_features]`；
+- 支持可选 bias `[out_features]`；
+- 支持 CPU / CUDA；
+- FP16 / BF16 输入内部使用 FP32 计算，输出恢复输入 dtype；
+- 支持对 `x`、`scale`、`bias` 反向传播。
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/int8_dequant_gemv.py tests/test_int8_dequant_gemv.py
+通过
+
+PYTHONPATH=python python -m pytest tests/test_int8_dequant_gemv.py -v
+17 passed in 3.63s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+127 passed in 4.62s
+```
+
+下一步：
+
+```text
+实现 INT8 Dequant-GEMV CUDA Naive Kernel 和 benchmark。
+```
+
+### 0.1 RoPE Phase 3 更新（2026-07-12 23:11）
 
 RoPE Float4 CUDA Kernel 已完成：
 
@@ -69,7 +112,7 @@ RoPE Float4 数值正确。
 相比 Naive 有稳定但幅度较小的加速，主要收益在小规模 case 更明显。
 ```
 
-### 0.1 RoPE Phase 2 更新（2026-07-12 23:00）
+### 0.2 RoPE Phase 2 更新（2026-07-12 23:00）
 
 RoPE Naive CUDA Kernel 已完成：
 
@@ -138,7 +181,7 @@ RoPE 下一步：
 Phase 3：实现 RoPE 优化版本，例如 float2/float4 向量化、half2 或更细化的访存策略。
 ```
 
-### 0.2 RoPE Phase 1 更新（2026-07-12 22:24）
+### 0.3 RoPE Phase 1 更新（2026-07-12 22:24）
 
 RoPE PyTorch Reference 已完成：
 
@@ -174,7 +217,7 @@ RoPE 下一步：
 Phase 2 已完成，当前下一步为 RoPE 优化版本。
 ```
 
-### 0.3 RMSNorm Phase 3 更新（2026-07-12 22:11）
+### 0.4 RMSNorm Phase 3 更新（2026-07-12 22:11）
 
 Phase 3 已完成：
 
