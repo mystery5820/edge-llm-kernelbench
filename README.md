@@ -55,6 +55,7 @@
 - [x] INT8 Dequant-GEMV CUDA Naive Kernel
 - [x] INT8 Dequant-GEMV Optimized Kernel
 - [x] INT8 Dequant-GEMV Optimization Report
+- [x] Project Benchmark Report
 
 ## 项目目标
 

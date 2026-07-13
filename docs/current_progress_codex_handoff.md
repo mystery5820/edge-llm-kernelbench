@@ -4,14 +4,39 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm、RoPE、INT8 Dequant-GEMV 三个算子阶段性闭环已完成
-> 下一任务：整理总览报告或继续 INT8 DP4A / x tile 复用优化
+> 最新状态：RMSNorm、RoPE、INT8 Dequant-GEMV 三个算子阶段性闭环与总览报告已完成
+> 下一任务：继续 INT8 DP4A / x tile 复用优化，或补充 CUDA 到 TileLang/MXMACA 迁移笔记
 
 ---
 
 ## 0. 最新进展更新（2026-07-12 23:00）
 
-### 0.0 INT8 Dequant-GEMV Phase 3 更新（2026-07-13）
+### 0.0 Project Benchmark Report 更新（2026-07-13）
+
+项目总览 benchmark/report 已完成：
+
+- 新增 `docs/05_benchmark_report.md`；
+- 汇总 RMSNorm、RoPE、INT8 Dequant-GEMV 三个算子的：
+  - 实现状态；
+  - 测试状态；
+  - benchmark 结果；
+  - 跨算子观察；
+  - 当前限制；
+  - 后续建议。
+
+当前项目已经具备：
+
+```text
+PyTorch Reference
+CUDA Baseline
+CUDA Optimized
+Correctness Tests
+Benchmark Results
+Optimization Reports
+Project Benchmark Report
+```
+
+### 0.1 INT8 Dequant-GEMV Phase 3 更新（2026-07-13）
 
 INT8 Dequant-GEMV Warp-level CUDA Kernel 已完成：
 
@@ -74,7 +99,7 @@ results/int8_dequant_gemv_warp_comparison_console_20260713_122655.log
 继续 INT8 DP4A / x tile 复用优化，或整理项目总览报告。
 ```
 
-### 0.1 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
+### 0.2 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
 
 INT8 Dequant-GEMV CUDA Naive Kernel 已完成：
 
@@ -118,7 +143,7 @@ benchmark_int8_dequant_gemv.py 已完成并通过小参数冒烟。
 下一步建议先评估 benchmark case 和参数，再生成正式结果。
 ```
 
-### 0.2 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
+### 0.3 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
 
 INT8 Dequant-GEMV PyTorch Reference 已完成：
 
@@ -161,7 +186,7 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 实现 INT8 Dequant-GEMV CUDA Naive Kernel 和 benchmark。
 ```
 
-### 0.3 RoPE Phase 3 更新（2026-07-12 23:11）
+### 0.4 RoPE Phase 3 更新（2026-07-12 23:11）
 
 RoPE Float4 CUDA Kernel 已完成：
 
@@ -219,7 +244,7 @@ RoPE Float4 数值正确。
 相比 Naive 有稳定但幅度较小的加速，主要收益在小规模 case 更明显。
 ```
 
-### 0.4 RoPE Phase 2 更新（2026-07-12 23:00）
+### 0.5 RoPE Phase 2 更新（2026-07-12 23:00）
 
 RoPE Naive CUDA Kernel 已完成：
 
@@ -288,7 +313,7 @@ RoPE 下一步：
 Phase 3：实现 RoPE 优化版本，例如 float2/float4 向量化、half2 或更细化的访存策略。
 ```
 
-### 0.5 RoPE Phase 1 更新（2026-07-12 22:24）
+### 0.6 RoPE Phase 1 更新（2026-07-12 22:24）
 
 RoPE PyTorch Reference 已完成：
 
@@ -324,7 +349,7 @@ RoPE 下一步：
 Phase 2 已完成，当前下一步为 RoPE 优化版本。
 ```
 
-### 0.6 RMSNorm Phase 3 更新（2026-07-12 22:11）
+### 0.7 RMSNorm Phase 3 更新（2026-07-12 22:11）
 
 Phase 3 已完成：
 
