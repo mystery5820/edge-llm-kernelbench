@@ -73,6 +73,11 @@ def load_int8_dequant_gemv_cuda_extension(
         / "int8_dequant_gemv_half2_kernel.cu"
     )
 
+    wide_cuda_source = (
+        kernel_directory
+        / "int8_dequant_gemv_wide_kernel.cu"
+    )
+
     sources = [
         cpp_source,
         cuda_source,
@@ -80,6 +85,7 @@ def load_int8_dequant_gemv_cuda_extension(
         tiled_cuda_source,
         vec4_cuda_source,
         half2_cuda_source,
+        wide_cuda_source,
     ]
 
     missing_sources = [
@@ -282,6 +288,38 @@ def int8_dequant_gemv_cuda_half2(
         bias_for_extension = bias
 
     return extension.forward_half2(
+        x,
+        weight_int8,
+        scale,
+        bias_for_extension,
+    )
+
+
+def int8_dequant_gemv_cuda_wide(
+    x: torch.Tensor,
+    weight_int8: torch.Tensor,
+    scale: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    调用 INT8 Dequant-GEMV 16-warp wide CUDA Kernel。
+
+    该实验版本每个 block 计算 16 个 output channel，用于评估继续减少
+    block 数是否能改善 rows=1 / large out_features 场景。
+    """
+
+    extension = load_int8_dequant_gemv_cuda_extension()
+
+    if bias is None:
+        bias_for_extension = torch.empty(
+            0,
+            device=x.device,
+            dtype=torch.float32,
+        )
+    else:
+        bias_for_extension = bias
+
+    return extension.forward_wide(
         x,
         weight_int8,
         scale,

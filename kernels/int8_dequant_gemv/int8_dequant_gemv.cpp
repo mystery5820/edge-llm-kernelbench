@@ -45,6 +45,14 @@ torch::Tensor int8_dequant_gemv_half2_cuda_launcher(
 );
 
 
+torch::Tensor int8_dequant_gemv_wide_cuda_launcher(
+    torch::Tensor x,
+    torch::Tensor weight_int8,
+    torch::Tensor scale,
+    torch::Tensor bias
+);
+
+
 void validate_int8_dequant_gemv_inputs(
     const torch::Tensor& x,
     const torch::Tensor& weight_int8,
@@ -320,6 +328,28 @@ torch::Tensor int8_dequant_gemv_half2_forward(
 }
 
 
+torch::Tensor int8_dequant_gemv_wide_forward(
+    torch::Tensor x,
+    torch::Tensor weight_int8,
+    torch::Tensor scale,
+    torch::Tensor bias
+) {
+    validate_int8_dequant_gemv_inputs(
+        x,
+        weight_int8,
+        scale,
+        bias
+    );
+
+    return int8_dequant_gemv_wide_cuda_launcher(
+        x,
+        weight_int8,
+        scale,
+        bias
+    );
+}
+
+
 PYBIND11_MODULE(
     TORCH_EXTENSION_NAME,
     module
@@ -352,5 +382,11 @@ PYBIND11_MODULE(
         "forward_half2",
         &int8_dequant_gemv_half2_forward,
         "INT8 Dequant-GEMV half2 CUDA forward"
+    );
+
+    module.def(
+        "forward_wide",
+        &int8_dequant_gemv_wide_forward,
+        "INT8 Dequant-GEMV 16-warp wide CUDA forward"
     );
 }

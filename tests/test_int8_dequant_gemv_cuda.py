@@ -25,6 +25,7 @@ from edge_kernelbench.int8_dequant_gemv_cuda import (
     int8_dequant_gemv_cuda_half2,
     int8_dequant_gemv_cuda_tiled,
     int8_dequant_gemv_cuda_vec4,
+    int8_dequant_gemv_cuda_wide,
     int8_dequant_gemv_cuda_warp,
 )
 
@@ -116,6 +117,13 @@ def assert_cuda_matches_reference(
         bias,
     )
 
+    wide_actual = int8_dequant_gemv_cuda_wide(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
     half2_actual = None
 
     if dtype == torch.float16:
@@ -178,6 +186,20 @@ def assert_cuda_matches_reference(
 
     torch.testing.assert_close(
         vec4_actual,
+        warp_actual,
+        rtol=tolerance,
+        atol=tolerance,
+    )
+
+    torch.testing.assert_close(
+        wide_actual,
+        expected,
+        rtol=tolerance,
+        atol=tolerance,
+    )
+
+    torch.testing.assert_close(
+        wide_actual,
         warp_actual,
         rtol=tolerance,
         atol=tolerance,
@@ -276,6 +298,13 @@ def test_cuda_known_values() -> None:
         bias,
     )
 
+    wide_actual = int8_dequant_gemv_cuda_wide(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
     torch.cuda.synchronize()
 
     torch.testing.assert_close(
@@ -301,6 +330,13 @@ def test_cuda_known_values() -> None:
 
     torch.testing.assert_close(
         vec4_actual,
+        expected,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+    torch.testing.assert_close(
+        wide_actual,
         expected,
         rtol=0.0,
         atol=0.0,

@@ -14,12 +14,12 @@
 |---|---:|---:|---:|---:|---:|---:|
 | RMSNorm | 已完成 | 已完成 | Warp / Float4 已完成 | 已完成 | 已完成 | 已完成 |
 | RoPE | 已完成 | 已完成 | Float4 已完成 | 已完成 | 已完成 | 已完成 |
-| INT8 Dequant-GEMV | 已完成 | 已完成 | Warp / Tiled / Vec4 / FP16 / Half2 已完成 | 已完成 | 已完成 | 已完成 |
+| INT8 Dequant-GEMV | 已完成 | 已完成 | Warp / Tiled / Vec4 / FP16 / Half2 / Wide 已完成 | 已完成 | 已完成 | 已完成 |
 
 最近全量回归：
 
 ```text
-143 passed in 4.64s
+143 passed in 4.68s
 ```
 
 ---
@@ -61,6 +61,8 @@ results/int8_dequant_gemv_vec4_comparison_20260713_131217.csv
 results/int8_dequant_gemv_fp32_vec4_comparison_20260713_135940.csv
 results/int8_dequant_gemv_fp16_vec4_comparison_20260713_135528.csv
 results/int8_dequant_gemv_fp16_half2_comparison_20260713_142951.csv
+results/int8_dequant_gemv_fp32_wide_comparison_20260713_144325.csv
+results/int8_dequant_gemv_fp16_wide_comparison_20260713_144341.csv
 ```
 
 优化报告：
@@ -160,6 +162,7 @@ CUDA X-tile experiment
 CUDA Vec4
 CUDA FP16 activation
 CUDA Half2
+CUDA Wide experiment
 ```
 
 Vec4 benchmark 参数：
@@ -186,6 +189,17 @@ FP16 activation 结果：
 | 1 | 2048 | 2048 | 17.418x | 4.555x | 0.913x |
 | 4 | 2048 | 2048 | 6.885x | 7.073x | 1.076x |
 
+Wide experiment 结果：
+
+| dtype | rows | in_features | out_features | Wide vs Warp | Wide vs Best |
+|---|---:|---:|---:|---:|---:|
+| FP32 | 1 | 1024 | 1024 | 1.076x | 1.024x vs Vec4 |
+| FP32 | 1 | 2048 | 2048 | 0.987x | 0.987x vs Warp |
+| FP32 | 4 | 2048 | 2048 | 0.967x | 0.668x vs Vec4 |
+| FP16 | 1 | 1024 | 1024 | 1.012x | 0.976x vs Vec4 API |
+| FP16 | 1 | 2048 | 2048 | 0.994x | 0.951x vs Vec4 API |
+| FP16 | 4 | 2048 | 2048 | 0.964x | 0.896x vs Half2 |
+
 结论：
 
 ```text
@@ -197,6 +211,8 @@ Vec4 版本在 rows=4 的场景明显快于 Warp，在 rows=1 场景与 Warp 基
 FP16 activation 已完成基础功能支持，内部仍使用 FP32 accumulation。
 Half2 版本使用 half2/char2 向量化读取，再转为 FP32 乘加以保持数值契约；
 rows=4 场景有小幅收益，rows=1 场景没有稳定领先。
+Wide 版本把 block 从 8 warp 扩到 16 warp，只有较小 rows=1 case 有小幅收益；
+在更大的 in_features 或 rows=4 场景不如现有最佳路径。
 DP4A 不能直接用于 FP32/FP16 activation 主乘加路径；需要 INT8 activation 路径后再评估。
 ```
 
@@ -263,9 +279,8 @@ INT8 Dequant-GEMV 的 warp-level 版本比 naive 明显更快，因为它把：
 RMSNorm FP16 / half2；
 RoPE half2；
 INT8 Dequant-GEMV rows=1 专门 kernel；
-INT8 Dequant-GEMV 更多 output channel / block；
+INT8 Dequant-GEMV 跨 output channel 的 x 复用；
 INT8 activation 路径与 DP4A；
-INT8 GEMV rows=1 专门 kernel。
 ```
 
 长线：

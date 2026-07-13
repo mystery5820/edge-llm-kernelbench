@@ -1,0 +1,117 @@
+========================================================================
+EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive vs Warp vs Tiled vs Vec4 vs Wide vs Half2
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Activation dtype: fp32
+Warmup calls:     5
+Measure rounds:   10
+Repeats/round:    10
+
+Loading INT8 Dequant-GEMV CUDA extension...
+INT8 Dequant-GEMV CUDA extension loaded.
+
+Case: rows=1, in_features=1024, out_features=1024, dtype=float32
+CUDA correctness maximum error: 9.91821289e-05
+Warp correctness maximum error: 1.22070312e-04
+Tiled correctness maximum error: 1.22070312e-04
+Vec4 correctness maximum error: 1.22070312e-04
+Wide correctness maximum error: 1.22070312e-04
+PyTorch Reference median: 0.518155 ms
+CUDA Naive median:        0.095174 ms
+CUDA Warp median:         0.037581 ms
+CUDA Tiled median:        0.037413 ms
+CUDA Vec4 median:         0.035738 ms
+CUDA Wide median:         0.034914 ms
+CUDA Naive vs Reference:  5.444x
+CUDA Warp vs Reference:   13.788x
+CUDA Tiled vs Reference:  13.850x
+CUDA Vec4 vs Reference:   14.499x
+CUDA Wide vs Reference:   14.841x
+CUDA Warp vs Naive:       2.533x
+CUDA Tiled vs Naive:      2.544x
+CUDA Vec4 vs Naive:       2.663x
+CUDA Wide vs Naive:       2.726x
+CUDA Tiled vs Warp:       1.004x
+CUDA Vec4 vs Warp:        1.052x
+CUDA Wide vs Warp:        1.076x
+
+Case: rows=1, in_features=2048, out_features=2048, dtype=float32
+CUDA correctness maximum error: 1.22070312e-04
+Warp correctness maximum error: 1.22070312e-04
+Tiled correctness maximum error: 1.22070312e-04
+Vec4 correctness maximum error: 1.22070312e-04
+Wide correctness maximum error: 1.22070312e-04
+PyTorch Reference median: 1.522238 ms
+CUDA Naive median:        0.209770 ms
+CUDA Warp median:         0.079610 ms
+CUDA Tiled median:        0.102944 ms
+CUDA Vec4 median:         0.080504 ms
+CUDA Wide median:         0.080648 ms
+CUDA Naive vs Reference:  7.257x
+CUDA Warp vs Reference:   19.121x
+CUDA Tiled vs Reference:  14.787x
+CUDA Vec4 vs Reference:   18.909x
+CUDA Wide vs Reference:   18.875x
+CUDA Warp vs Naive:       2.635x
+CUDA Tiled vs Naive:      2.038x
+CUDA Vec4 vs Naive:       2.606x
+CUDA Wide vs Naive:       2.601x
+CUDA Tiled vs Warp:       0.773x
+CUDA Vec4 vs Warp:        0.989x
+CUDA Wide vs Warp:        0.987x
+
+Case: rows=4, in_features=2048, out_features=2048, dtype=float32
+CUDA correctness maximum error: 2.44140625e-04
+Warp correctness maximum error: 2.15530396e-04
+Tiled correctness maximum error: 2.15530396e-04
+Vec4 correctness maximum error: 2.44140625e-04
+Wide correctness maximum error: 2.15530396e-04
+PyTorch Reference median: 1.454283 ms
+CUDA Naive median:        0.728410 ms
+CUDA Warp median:         0.228034 ms
+CUDA Tiled median:        0.313342 ms
+CUDA Vec4 median:         0.157589 ms
+CUDA Wide median:         0.235867 ms
+CUDA Naive vs Reference:  1.997x
+CUDA Warp vs Reference:   6.377x
+CUDA Tiled vs Reference:  4.641x
+CUDA Vec4 vs Reference:   9.228x
+CUDA Wide vs Reference:   6.166x
+CUDA Warp vs Naive:       3.194x
+CUDA Tiled vs Naive:      2.325x
+CUDA Vec4 vs Naive:       4.622x
+CUDA Wide vs Naive:       3.088x
+CUDA Tiled vs Warp:       0.728x
+CUDA Vec4 vs Warp:        1.447x
+CUDA Wide vs Warp:        0.967x
+
+
+================================================================================================================
+INT8 Dequant-GEMV Benchmark Summary
+================================================================================================================
+implementation           dtype    rows        in       out      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+----------------------------------------------------------------------------------------------------------------
+pytorch_reference      float32       1      1024      1024      0.568577      0.518155      0.408784      0.758426      1.000x
+cuda_naive             float32       1      1024      1024      0.095340      0.095174      0.094816      0.096685      5.444x
+cuda_warp              float32       1      1024      1024      0.037562      0.037581      0.034560      0.040067     13.788x
+cuda_tiled             float32       1      1024      1024      0.037373      0.037413      0.035610      0.039450     13.850x
+cuda_vec4              float32       1      1024      1024      0.036256      0.035738      0.034602      0.041466     14.499x
+cuda_wide              float32       1      1024      1024      0.034963      0.034914      0.033770      0.037792     14.841x
+pytorch_reference      float32       1      2048      2048      1.683772      1.522238      1.386685      2.798438      1.000x
+cuda_naive             float32       1      2048      2048      0.209823      0.209770      0.209344      0.210432      7.257x
+cuda_warp              float32       1      2048      2048      0.079834      0.079610      0.079267      0.081846     19.121x
+cuda_tiled             float32       1      2048      2048      0.102893      0.102944      0.102566      0.103062     14.787x
+cuda_vec4              float32       1      2048      2048      0.080756      0.080504      0.080128      0.083146     18.909x
+cuda_wide              float32       1      2048      2048      0.080567      0.080648      0.080208      0.080886     18.875x
+pytorch_reference      float32       4      2048      2048      1.522610      1.454283      1.453072      1.735466      1.000x
+cuda_naive             float32       4      2048      2048      0.728694      0.728410      0.727987      0.730957      1.997x
+cuda_warp              float32       4      2048      2048      0.227880      0.228034      0.226394      0.228464      6.377x
+cuda_tiled             float32       4      2048      2048      0.313376      0.313342      0.312922      0.313926      4.641x
+cuda_vec4              float32       4      2048      2048      0.157660      0.157589      0.157210      0.158288      9.228x
+cuda_wide              float32       4      2048      2048      0.235931      0.235867      0.235072      0.236429      6.166x
+================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/int8_dequant_gemv_fp32_wide_comparison_20260713_144325.csv
