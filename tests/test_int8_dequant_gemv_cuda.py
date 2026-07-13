@@ -22,6 +22,7 @@ if str(PYTHON_DIRECTORY) not in sys.path:
 from edge_kernelbench.int8_dequant_gemv import int8_dequant_gemv_reference
 from edge_kernelbench.int8_dequant_gemv_cuda import (
     int8_dequant_gemv_cuda,
+    int8_dequant_gemv_cuda_tiled,
     int8_dequant_gemv_cuda_warp,
 )
 
@@ -98,6 +99,13 @@ def assert_cuda_matches_reference(
         bias,
     )
 
+    tiled_actual = int8_dequant_gemv_cuda_tiled(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
     torch.cuda.synchronize()
 
     torch.testing.assert_close(
@@ -117,6 +125,20 @@ def assert_cuda_matches_reference(
     torch.testing.assert_close(
         warp_actual,
         actual,
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+    torch.testing.assert_close(
+        tiled_actual,
+        expected,
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+    torch.testing.assert_close(
+        tiled_actual,
+        warp_actual,
         rtol=1e-4,
         atol=1e-4,
     )
@@ -185,6 +207,13 @@ def test_cuda_known_values() -> None:
         bias,
     )
 
+    tiled_actual = int8_dequant_gemv_cuda_tiled(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
     torch.cuda.synchronize()
 
     torch.testing.assert_close(
@@ -196,6 +225,13 @@ def test_cuda_known_values() -> None:
 
     torch.testing.assert_close(
         warp_actual,
+        expected,
+        rtol=0.0,
+        atol=0.0,
+    )
+
+    torch.testing.assert_close(
+        tiled_actual,
         expected,
         rtol=0.0,
         atol=0.0,

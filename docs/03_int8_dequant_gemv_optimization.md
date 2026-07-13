@@ -121,6 +121,41 @@ warp 内使用 __shfl_down_sync 做 FP32 reduction
 - warp 内规约减少同步开销；
 - 对 GEMV 中大量 out_feature 的场景更合适。
 
+### 2.4 X-tile CUDA experiment
+
+文件：
+
+```text
+kernels/int8_dequant_gemv/int8_dequant_gemv_tiled_kernel.cu
+```
+
+API：
+
+```python
+int8_dequant_gemv_cuda_tiled(x, weight_int8, scale, bias=None)
+```
+
+实验目标：
+
+```text
+在 warp-level 映射基础上，将 x 的一段 tile 加载到 shared memory，
+让同一个 block 内的 8 个 warp 复用这段 x。
+```
+
+实验结果：
+
+```text
+数值正确，但冒烟 benchmark 中慢于 warp-level 版本。
+```
+
+原因分析：
+
+```text
+shared memory 加载和每个 tile 的 __syncthreads() 带来的开销，
+超过了 8 个 warp 复用 x tile 带来的收益。
+当前 GEMV case 中，warp-level 版本保持 x 的直接 global load 反而更快。
+```
+
 ---
 
 ## 3. 正确性验证
@@ -142,6 +177,7 @@ tests/test_int8_dequant_gemv_cuda.py
 - autograd；
 - CUDA Naive vs Reference；
 - CUDA Warp vs Reference / Naive；
+- CUDA Tiled vs Reference / Warp；
 - empty rows；
 - CPU input、FP16 CUDA input、non-contiguous input 等非法输入。
 
@@ -279,7 +315,7 @@ Warp vs Naive = 2.509x 到 3.200x
 当前 INT8 Dequant-GEMV 仍有明显优化空间：
 
 1. 多个输出通道重复读取同一段 `x`；
-2. 没有对 `x` 做 shared memory tile；
+2. 已尝试对 `x` 做 shared memory tile，但当前实现中同步开销超过复用收益；
 3. 没有使用 `char4` / `int4` 等向量化读取 INT8 权重；
 4. 没有使用 DP4A；
 5. 当前输入 `x` 仅支持 FP32；
@@ -292,9 +328,9 @@ Warp vs Naive = 2.509x 到 3.200x
 
 优先级较高：
 
-1. 使用 shared memory 缓存 x tile，多个 output channel 复用；
-2. INT8 权重向量化读取；
-3. 尝试 DP4A 或 4 元 INT8 打包累加；
+1. INT8 权重向量化读取；
+2. 尝试 DP4A 或 4 元 INT8 打包累加；
+3. 如果继续 x tile 复用，需要减少同步或让一个 block 计算更多 output channel；
 4. 一个 block 计算更多 output channel；
 5. 针对 rows=1 的 GEMV 场景做专门 kernel；
 6. 支持 FP16 x；

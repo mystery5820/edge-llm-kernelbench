@@ -58,10 +58,16 @@ def load_int8_dequant_gemv_cuda_extension(
         / "int8_dequant_gemv_warp_kernel.cu"
     )
 
+    tiled_cuda_source = (
+        kernel_directory
+        / "int8_dequant_gemv_tiled_kernel.cu"
+    )
+
     sources = [
         cpp_source,
         cuda_source,
         warp_cuda_source,
+        tiled_cuda_source,
     ]
 
     missing_sources = [
@@ -164,6 +170,35 @@ def int8_dequant_gemv_cuda_warp(
         bias_for_extension = bias
 
     return extension.forward_warp(
+        x,
+        weight_int8,
+        scale,
+        bias_for_extension,
+    )
+
+
+def int8_dequant_gemv_cuda_tiled(
+    x: torch.Tensor,
+    weight_int8: torch.Tensor,
+    scale: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    调用 INT8 Dequant-GEMV x-tile shared-memory CUDA Kernel。
+    """
+
+    extension = load_int8_dequant_gemv_cuda_extension()
+
+    if bias is None:
+        bias_for_extension = torch.empty(
+            0,
+            device=x.device,
+            dtype=torch.float32,
+        )
+    else:
+        bias_for_extension = bias
+
+    return extension.forward_tiled(
         x,
         weight_int8,
         scale,
