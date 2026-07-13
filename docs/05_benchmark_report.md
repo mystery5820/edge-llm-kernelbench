@@ -14,12 +14,12 @@
 |---|---:|---:|---:|---:|---:|---:|
 | RMSNorm | 已完成 | 已完成 | Warp / Float4 已完成 | 已完成 | 已完成 | 已完成 |
 | RoPE | 已完成 | 已完成 | Float4 已完成 | 已完成 | 已完成 | 已完成 |
-| INT8 Dequant-GEMV | 已完成 | 已完成 | Warp-level 已完成 | 已完成 | 已完成 | 已完成 |
+| INT8 Dequant-GEMV | 已完成 | 已完成 | Warp / Tiled / Vec4 已完成 | 已完成 | 已完成 | 已完成 |
 
 最近全量回归：
 
 ```text
-137 passed
+138 passed
 ```
 
 ---
@@ -57,6 +57,7 @@ docs/02_rope_optimization.md
 
 ```text
 results/int8_dequant_gemv_warp_comparison_20260713_122659.csv
+results/int8_dequant_gemv_vec4_comparison_20260713_131217.csv
 ```
 
 优化报告：
@@ -152,9 +153,11 @@ Float4 相比 Naive 有稳定但较小的加速。
 PyTorch Reference
 CUDA Naive
 CUDA Warp-level
+CUDA X-tile experiment
+CUDA Vec4
 ```
 
-Warp benchmark 参数：
+Vec4 benchmark 参数：
 
 ```text
 warmup=5
@@ -162,13 +165,13 @@ rounds=10
 repeats=10
 ```
 
-Warp 结果：
+Vec4 结果：
 
-| rows | in_features | out_features | Warp vs Reference | Warp vs Naive |
-|---:|---:|---:|---:|---:|
-| 1 | 1024 | 1024 | 10.789x | 2.509x |
-| 1 | 2048 | 2048 | 19.481x | 2.649x |
-| 4 | 2048 | 2048 | 6.387x | 3.200x |
+| rows | in_features | out_features | Vec4 vs Reference | Vec4 vs Naive | Vec4 vs Warp |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1024 | 1024 | 17.875x | 2.892x | 1.066x |
+| 1 | 2048 | 2048 | 19.076x | 2.598x | 0.981x |
+| 4 | 2048 | 2048 | 9.246x | 4.627x | 1.449x |
 
 结论：
 
@@ -176,6 +179,9 @@ Warp 结果：
 CUDA Naive 避免显式生成完整 dequant_weight，中等规模下相比 PyTorch Reference 有明显收益。
 Warp-level 版本通过一个 block 计算 8 个输出通道，减少 block 数并使用 warp shuffle 规约，
 相对 Naive 获得 2.5x 到 3.2x 的加速。
+X-tile shared-memory 复用实验数值正确，但同步开销超过 x 复用收益。
+Vec4 版本在 rows=4 的场景明显快于 Warp，在 rows=1 场景与 Warp 基本持平。
+当前 activation 是 FP32，因此 DP4A 不能直接用于主乘加路径；需要 INT8 activation 路径后再评估。
 ```
 
 ---
@@ -188,7 +194,7 @@ RoPE 和 INT8 Dequant-GEMV 的收益很明显，核心原因是自定义 CUDA ke
 
 ### 6.2 Vectorization is not always a large win
 
-RMSNorm Float4 和 RoPE Float4 都是数值正确且有收益的优化，但收益幅度依赖场景：
+RMSNorm Float4、RoPE Float4 和 INT8 GEMV Vec4 都是数值正确且有收益的优化，但收益幅度依赖场景：
 
 - 小算子会被 launch overhead 稀释；
 - 如果 Naive 访存已经较连续，float4 的额外收益会收敛；
@@ -240,8 +246,9 @@ INT8 Dequant-GEMV 的 warp-level 版本比 naive 明显更快，因为它把：
 ```text
 RMSNorm FP16 / half2；
 RoPE half2；
-INT8 Dequant-GEMV DP4A；
-INT8 GEMV x tile shared memory 复用。
+INT8 Dequant-GEMV FP16 / half2 activation；
+INT8 activation 路径与 DP4A；
+INT8 GEMV rows=1 专门 kernel。
 ```
 
 长线：

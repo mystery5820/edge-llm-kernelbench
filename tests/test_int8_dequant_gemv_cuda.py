@@ -23,6 +23,7 @@ from edge_kernelbench.int8_dequant_gemv import int8_dequant_gemv_reference
 from edge_kernelbench.int8_dequant_gemv_cuda import (
     int8_dequant_gemv_cuda,
     int8_dequant_gemv_cuda_tiled,
+    int8_dequant_gemv_cuda_vec4,
     int8_dequant_gemv_cuda_warp,
 )
 
@@ -106,6 +107,13 @@ def assert_cuda_matches_reference(
         bias,
     )
 
+    vec4_actual = int8_dequant_gemv_cuda_vec4(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
     torch.cuda.synchronize()
 
     torch.testing.assert_close(
@@ -138,6 +146,20 @@ def assert_cuda_matches_reference(
 
     torch.testing.assert_close(
         tiled_actual,
+        warp_actual,
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+    torch.testing.assert_close(
+        vec4_actual,
+        expected,
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+    torch.testing.assert_close(
+        vec4_actual,
         warp_actual,
         rtol=1e-4,
         atol=1e-4,
@@ -214,6 +236,13 @@ def test_cuda_known_values() -> None:
         bias,
     )
 
+    vec4_actual = int8_dequant_gemv_cuda_vec4(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
     torch.cuda.synchronize()
 
     torch.testing.assert_close(
@@ -237,12 +266,20 @@ def test_cuda_known_values() -> None:
         atol=0.0,
     )
 
+    torch.testing.assert_close(
+        vec4_actual,
+        expected,
+        rtol=0.0,
+        atol=0.0,
+    )
+
 
 @pytest.mark.parametrize(
     "shape",
     [
         (16,),
         (4, 16),
+        (4, 18),
         (2, 3, 16),
     ],
 )

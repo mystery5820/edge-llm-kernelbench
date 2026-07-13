@@ -3,15 +3,89 @@
 > 建议工程路径：`docs/current_progress_codex_handoff.md`  
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
-> 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm、RoPE、INT8 Dequant-GEMV 三个算子阶段性闭环与总览报告已完成；INT8 x-tile 实验已完成但未加速
-> 下一任务：继续 INT8 DP4A / INT8 权重向量化读取，或补充 CUDA 到 TileLang/MXMACA 迁移笔记
+> 当前主线：INT8 Dequant-GEMV CUDA 算子优化
+> 最新状态：RMSNorm、RoPE、INT8 Dequant-GEMV 三个算子阶段性闭环与总览报告已完成；INT8 x-tile 实验已完成但未加速；INT8 Vec4 版本已完成并验证
+> 下一任务：继续 FP16/half2 activation、INT8 activation + DP4A，或补充 Nsight profiling / CUDA 到 TileLang/MXMACA 迁移笔记
 
 ---
 
-## 0. 最新进展更新（2026-07-12 23:00）
+## 0. 最新进展更新（2026-07-13 13:12）
 
-### 0.0 INT8 Dequant-GEMV X-tile 实验更新（2026-07-13）
+### 0.0 INT8 Dequant-GEMV Vec4 更新（2026-07-13）
+
+INT8 Dequant-GEMV Vec4 CUDA Kernel 已完成：
+
+- 新增 `kernels/int8_dequant_gemv/int8_dequant_gemv_vec4_kernel.cu`；
+- C++ 新增 `forward_vec4`；
+- Python 新增 `int8_dequant_gemv_cuda_vec4()`；
+- `benchmarks/benchmark_int8_dequant_gemv.py` 已扩展为 PyTorch / CUDA Naive / CUDA Warp / CUDA Tiled / CUDA Vec4 五方比较；
+- `tests/test_int8_dequant_gemv_cuda.py` 已覆盖 Vec4 与 Reference/Warp 的一致性，并加入 `(4, 18)` shape 覆盖标量 fallback 路径。
+
+Kernel 策略：
+
+```text
+保持 warp-level 映射：
+一个 block 包含 8 个 warp
+每个 warp 计算一个 output[row, out_feature]
+
+对齐且 in_features % 4 == 0 时：
+x 使用 float4 读取
+weight_int8 使用 char4 读取
+每个 lane 一次处理 4 个连续 column
+
+否则回退到标量 warp 路径。
+```
+
+验证结果：
+
+```text
+MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_int8_dequant_gemv_cuda.py -v
+11 passed in 3.52s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+138 passed in 4.57s
+```
+
+Benchmark 结果：
+
+```text
+参数：warmup=5, rounds=10, repeats=10
+
+rows=1, in=1024, out=1024
+Vec4 median：       0.032856 ms
+Vec4 vs Reference：17.875x
+Vec4 vs Naive：    2.892x
+Vec4 vs Warp：     1.066x
+
+rows=1, in=2048, out=2048
+Vec4 median：       0.080854 ms
+Vec4 vs Reference：19.076x
+Vec4 vs Naive：    2.598x
+Vec4 vs Warp：     0.981x
+
+rows=4, in=2048, out=2048
+Vec4 median：       0.157418 ms
+Vec4 vs Reference：9.246x
+Vec4 vs Naive：    4.627x
+Vec4 vs Warp：     1.449x
+```
+
+结果文件：
+
+```text
+results/int8_dequant_gemv_vec4_comparison_20260713_131217.csv
+results/int8_dequant_gemv_vec4_comparison_console_20260713_131213.log
+```
+
+当前判断：
+
+```text
+Vec4 在 rows=4 场景对 Warp 有明确收益，在 rows=1 场景基本持平。
+当前算子是 FP32 activation * INT8 weight，不能直接使用 DP4A；
+如果要进入 DP4A，需要先设计 INT8 activation/packed activation 路径。
+```
+
+### 0.1 INT8 Dequant-GEMV X-tile 实验更新（2026-07-13）
 
 INT8 Dequant-GEMV X-tile shared-memory 实验已完成：
 
@@ -36,8 +110,8 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 ```text
 Tiled 数值正确，但慢于 warp-level 版本。
 
-rows=1, in=1024, out=1024： Tiled vs Warp 0.832x
-rows=1, in=2048, out=2048： Tiled vs Warp 0.776x
+rows=1, in=1024, out=1024： Tiled vs Warp 0.981x
+rows=1, in=2048, out=2048： Tiled vs Warp 0.774x
 rows=4, in=2048, out=2048： Tiled vs Warp 0.728x
 ```
 
@@ -45,10 +119,10 @@ rows=4, in=2048, out=2048： Tiled vs Warp 0.728x
 
 ```text
 shared memory 加载和 tile 级 __syncthreads() 开销大于 x 复用收益。
-后续更值得优先尝试 INT8 权重向量化读取或 DP4A。
+INT8 权重向量化读取已经由 Vec4 版本完成；后续更值得进入 FP16/half2 activation、INT8 activation + DP4A 或 Nsight profiling。
 ```
 
-### 0.1 Project Benchmark Report 更新（2026-07-13）
+### 0.2 Project Benchmark Report 更新（2026-07-13）
 
 项目总览 benchmark/report 已完成：
 
@@ -73,7 +147,7 @@ Optimization Reports
 Project Benchmark Report
 ```
 
-### 0.2 INT8 Dequant-GEMV Phase 3 更新（2026-07-13）
+### 0.3 INT8 Dequant-GEMV Phase 3 更新（2026-07-13）
 
 INT8 Dequant-GEMV Warp-level CUDA Kernel 已完成：
 
@@ -136,7 +210,7 @@ results/int8_dequant_gemv_warp_comparison_console_20260713_122655.log
 继续 INT8 DP4A / x tile 复用优化，或整理项目总览报告。
 ```
 
-### 0.3 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
+### 0.4 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
 
 INT8 Dequant-GEMV CUDA Naive Kernel 已完成：
 
@@ -180,7 +254,7 @@ benchmark_int8_dequant_gemv.py 已完成并通过小参数冒烟。
 下一步建议先评估 benchmark case 和参数，再生成正式结果。
 ```
 
-### 0.4 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
+### 0.5 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
 
 INT8 Dequant-GEMV PyTorch Reference 已完成：
 
@@ -223,7 +297,7 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 实现 INT8 Dequant-GEMV CUDA Naive Kernel 和 benchmark。
 ```
 
-### 0.5 RoPE Phase 3 更新（2026-07-12 23:11）
+### 0.6 RoPE Phase 3 更新（2026-07-12 23:11）
 
 RoPE Float4 CUDA Kernel 已完成：
 
@@ -281,7 +355,7 @@ RoPE Float4 数值正确。
 相比 Naive 有稳定但幅度较小的加速，主要收益在小规模 case 更明显。
 ```
 
-### 0.6 RoPE Phase 2 更新（2026-07-12 23:00）
+### 0.7 RoPE Phase 2 更新（2026-07-12 23:00）
 
 RoPE Naive CUDA Kernel 已完成：
 
@@ -350,7 +424,7 @@ RoPE 下一步：
 Phase 3：实现 RoPE 优化版本，例如 float2/float4 向量化、half2 或更细化的访存策略。
 ```
 
-### 0.7 RoPE Phase 1 更新（2026-07-12 22:24）
+### 0.8 RoPE Phase 1 更新（2026-07-12 22:24）
 
 RoPE PyTorch Reference 已完成：
 
@@ -386,7 +460,7 @@ RoPE 下一步：
 Phase 2 已完成，当前下一步为 RoPE 优化版本。
 ```
 
-### 0.8 RMSNorm Phase 3 更新（2026-07-12 22:11）
+### 0.9 RMSNorm Phase 3 更新（2026-07-12 22:11）
 
 Phase 3 已完成：
 

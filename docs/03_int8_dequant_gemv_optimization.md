@@ -2,7 +2,7 @@
 
 > 日期：2026-07-13  
 > 平台：NVIDIA Jetson Orin Nano Super 8GB  
-> 当前阶段：PyTorch Reference、Naive CUDA、Warp-level CUDA 已完成
+> 当前阶段：PyTorch Reference、Naive CUDA、Warp-level CUDA、X-tile 实验、Vec4 CUDA 已完成
 
 ---
 
@@ -156,6 +156,42 @@ shared memory 加载和每个 tile 的 __syncthreads() 带来的开销，
 当前 GEMV case 中，warp-level 版本保持 x 的直接 global load 反而更快。
 ```
 
+### 2.5 Vec4 CUDA
+
+文件：
+
+```text
+kernels/int8_dequant_gemv/int8_dequant_gemv_vec4_kernel.cu
+```
+
+API：
+
+```python
+int8_dequant_gemv_cuda_vec4(x, weight_int8, scale, bias=None)
+```
+
+实现策略：
+
+```text
+保持 warp-level 映射：
+一个 block = 8 个 warp
+每个 warp 计算一个 output[row, out_feature]
+
+当 in_features % 4 == 0 且指针对齐时：
+x 使用 float4 读取
+weight_int8 使用 char4 读取
+每个 lane 一次处理 4 个连续 column
+
+否则回退到标量 warp 路径。
+```
+
+说明：
+
+```text
+当前算子仍是 FP32 x * INT8 weight，再做 FP32 accumulation。
+DP4A 需要两侧输入都按 INT8 打包；在 x 仍为 FP32 的前提下，不能直接使用 DP4A 替代当前乘加路径。
+```
+
 ---
 
 ## 3. 正确性验证
@@ -178,6 +214,8 @@ tests/test_int8_dequant_gemv_cuda.py
 - CUDA Naive vs Reference；
 - CUDA Warp vs Reference / Naive；
 - CUDA Tiled vs Reference / Warp；
+- CUDA Vec4 vs Reference / Warp；
+- Vec4 标量 fallback 路径；
 - empty rows；
 - CPU input、FP16 CUDA input、non-contiguous input 等非法输入。
 
@@ -185,10 +223,10 @@ tests/test_int8_dequant_gemv_cuda.py
 
 ```text
 MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_int8_dequant_gemv_cuda.py -v
-10 passed in 3.56s
+11 passed in 3.52s
 
 MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
-137 passed in 4.57s
+138 passed in 4.57s
 ```
 
 ---
@@ -218,6 +256,8 @@ repeats=10
 ```text
 results/int8_dequant_gemv_warp_comparison_20260713_122659.csv
 results/int8_dequant_gemv_warp_comparison_console_20260713_122655.log
+results/int8_dequant_gemv_vec4_comparison_20260713_131217.csv
+results/int8_dequant_gemv_vec4_comparison_console_20260713_131213.log
 ```
 
 ---
@@ -226,27 +266,27 @@ results/int8_dequant_gemv_warp_comparison_console_20260713_122655.log
 
 ### 5.1 Median latency
 
-| rows | in_features | out_features | PyTorch Reference ms | CUDA Naive ms | CUDA Warp ms |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 1024 | 1024 | 0.408277 | 0.094942 | 0.037843 |
-| 1 | 2048 | 2048 | 1.539941 | 0.209438 | 0.079050 |
-| 4 | 2048 | 2048 | 1.453798 | 0.728413 | 0.227621 |
+| rows | in_features | out_features | PyTorch Reference ms | CUDA Naive ms | CUDA Warp ms | CUDA Tiled ms | CUDA Vec4 ms |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1024 | 1024 | 0.587317 | 0.095019 | 0.035016 | 0.035688 | 0.032856 |
+| 1 | 2048 | 2048 | 1.542368 | 0.210086 | 0.079296 | 0.102501 | 0.080854 |
+| 4 | 2048 | 2048 | 1.455528 | 0.728339 | 0.228058 | 0.313299 | 0.157418 |
 
 ### 5.2 Speedup
 
-| rows | in_features | out_features | Naive vs Reference | Warp vs Reference | Warp vs Naive |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 1024 | 1024 | 4.300x | 10.789x | 2.509x |
-| 1 | 2048 | 2048 | 7.353x | 19.481x | 2.649x |
-| 4 | 2048 | 2048 | 1.996x | 6.387x | 3.200x |
+| rows | in_features | out_features | Naive vs Reference | Warp vs Reference | Tiled vs Reference | Vec4 vs Reference | Vec4 vs Warp |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1024 | 1024 | 6.181x | 16.773x | 16.457x | 17.875x | 1.066x |
+| 1 | 2048 | 2048 | 7.342x | 19.451x | 15.047x | 19.076x | 0.981x |
+| 4 | 2048 | 2048 | 1.998x | 6.382x | 4.646x | 9.246x | 1.449x |
 
 ### 5.3 Correctness maximum error
 
-| rows | in_features | out_features | Naive max error | Warp max error |
-|---:|---:|---:|---:|---:|
-| 1 | 1024 | 1024 | 9.91821289e-05 | 1.22070312e-04 |
-| 1 | 2048 | 2048 | 1.22070312e-04 | 1.22070312e-04 |
-| 4 | 2048 | 2048 | 2.44140625e-04 | 2.15530396e-04 |
+| rows | in_features | out_features | Naive max error | Warp max error | Tiled max error | Vec4 max error |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1024 | 1024 | 9.91821289e-05 | 1.22070312e-04 | 1.22070312e-04 | 1.22070312e-04 |
+| 1 | 2048 | 2048 | 1.22070312e-04 | 1.22070312e-04 | 1.22070312e-04 | 1.22070312e-04 |
+| 4 | 2048 | 2048 | 2.44140625e-04 | 2.15530396e-04 | 2.15530396e-04 | 2.44140625e-04 |
 
 误差来自 FP32 reduction 顺序差异，当前测试和 benchmark 使用 `1e-4` 级别容差。
 
@@ -308,6 +348,35 @@ Warp vs Naive = 2.509x 到 3.200x
 - 没有利用 shared memory 缓存 x tile；
 - INT8 权重读取和 FP32 累加仍是标量路径。
 
+### 6.4 X-tile 实验结果
+
+X-tile 版本试图让同一个 block 内 8 个 warp 复用 shared memory 中的 `x` tile。结果数值正确，但三组 benchmark 都慢于 warp-level：
+
+```text
+rows=1, in=1024, out=1024：Tiled vs Warp 0.981x
+rows=1, in=2048, out=2048：Tiled vs Warp 0.774x
+rows=4, in=2048, out=2048：Tiled vs Warp 0.728x
+```
+
+当前判断是：每个 tile 的加载和 `__syncthreads()` 开销，超过了 8 个 warp 复用同一段 `x` 带来的收益。这个实验保留为负结果，有助于说明 shared memory 并不是这个映射下的直接收益点。
+
+### 6.5 Vec4 优化结果
+
+Vec4 版本保持 warp-level 的 block/warp 映射，只把 inner loop 改为 4 元向量读取。结果更接近实际瓶颈：
+
+```text
+rows=1, in=1024, out=1024：Vec4 vs Warp 1.066x
+rows=1, in=2048, out=2048：Vec4 vs Warp 0.981x
+rows=4, in=2048, out=2048：Vec4 vs Warp 1.449x
+```
+
+结论：
+
+- rows=1 的场景主要受 launch、调度和全局访存影响，vec4 只能带来小幅收益或基本持平；
+- rows=4 时同一 kernel 中有效工作更多，向量化读取的收益更容易体现；
+- 对当前 FP32 activation 版本，`float4 + char4` 是比 DP4A 更直接的优化方向；
+- 如果要真正使用 DP4A，需要增加 INT8 activation/quantization 路径，或者在上游保留 INT8 激活。
+
 ---
 
 ## 7. 当前瓶颈
@@ -316,8 +385,8 @@ Warp vs Naive = 2.509x 到 3.200x
 
 1. 多个输出通道重复读取同一段 `x`；
 2. 已尝试对 `x` 做 shared memory tile，但当前实现中同步开销超过复用收益；
-3. 没有使用 `char4` / `int4` 等向量化读取 INT8 权重；
-4. 没有使用 DP4A；
+3. Vec4 已完成，但 rows=1 场景收益有限；
+4. 没有使用 DP4A，因为当前 activation 是 FP32；
 5. 当前输入 `x` 仅支持 FP32；
 6. 没有 FP16 / half2 路径；
 7. benchmark 参数还不是与前两个算子完全一致的正式长跑参数。
@@ -328,13 +397,12 @@ Warp vs Naive = 2.509x 到 3.200x
 
 优先级较高：
 
-1. INT8 权重向量化读取；
-2. 尝试 DP4A 或 4 元 INT8 打包累加；
+1. 增加 FP16 / half2 activation 路径；
+2. 设计 INT8 activation 路径，再评估 DP4A；
 3. 如果继续 x tile 复用，需要减少同步或让一个 block 计算更多 output channel；
 4. 一个 block 计算更多 output channel；
 5. 针对 rows=1 的 GEMV 场景做专门 kernel；
-6. 支持 FP16 x；
-7. 重新设计 benchmark case，补充正式长跑 CSV。
+6. 重新设计 benchmark case，补充锁频、温度和 Nsight profiling 数据。
 
 ---
 
@@ -349,6 +417,10 @@ Naive CUDA
     ↓
 Warp-level CUDA
     ↓
+X-tile CUDA experiment
+    ↓
+Vec4 CUDA
+    ↓
 Correctness Tests
     ↓
 Benchmark CSV / Console Log
@@ -361,5 +433,7 @@ Optimization Report
 ```text
 CUDA Naive 避免显式 dequant_weight，中等规模下相对 PyTorch Reference 有明显收益。
 Warp-level 版本通过一个 block 计算 8 个输出通道，进一步获得 2.5x 到 3.2x 的 Naive 相对加速。
-下一阶段最有价值的方向是 x tile 复用、INT8 向量化读取和 DP4A。
+X-tile shared-memory 复用实验数值正确但没有加速，说明当前映射下同步开销更关键。
+Vec4 版本在 rows=4, in=2048, out=2048 场景相对 Warp 达到 1.449x，在 rows=1 场景接近持平。
+下一阶段最有价值的方向是 FP16/half2 activation、INT8 activation + DP4A，以及 Nsight profiling。
 ```

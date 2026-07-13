@@ -29,6 +29,14 @@ torch::Tensor int8_dequant_gemv_tiled_cuda_launcher(
 );
 
 
+torch::Tensor int8_dequant_gemv_vec4_cuda_launcher(
+    torch::Tensor x,
+    torch::Tensor weight_int8,
+    torch::Tensor scale,
+    torch::Tensor bias
+);
+
+
 void validate_int8_dequant_gemv_inputs(
     const torch::Tensor& x,
     const torch::Tensor& weight_int8,
@@ -252,6 +260,28 @@ torch::Tensor int8_dequant_gemv_tiled_forward(
 }
 
 
+torch::Tensor int8_dequant_gemv_vec4_forward(
+    torch::Tensor x,
+    torch::Tensor weight_int8,
+    torch::Tensor scale,
+    torch::Tensor bias
+) {
+    validate_int8_dequant_gemv_inputs(
+        x,
+        weight_int8,
+        scale,
+        bias
+    );
+
+    return int8_dequant_gemv_vec4_cuda_launcher(
+        x,
+        weight_int8,
+        scale,
+        bias
+    );
+}
+
+
 PYBIND11_MODULE(
     TORCH_EXTENSION_NAME,
     module
@@ -272,5 +302,11 @@ PYBIND11_MODULE(
         "forward_tiled",
         &int8_dequant_gemv_tiled_forward,
         "INT8 Dequant-GEMV x-tile CUDA forward"
+    );
+
+    module.def(
+        "forward_vec4",
+        &int8_dequant_gemv_vec4_forward,
+        "INT8 Dequant-GEMV vec4 CUDA forward"
     );
 }
