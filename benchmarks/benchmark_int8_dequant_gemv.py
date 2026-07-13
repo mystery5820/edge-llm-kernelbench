@@ -29,6 +29,7 @@ if str(PYTHON_DIRECTORY) not in sys.path:
 from edge_kernelbench.int8_dequant_gemv import int8_dequant_gemv_reference
 from edge_kernelbench.int8_dequant_gemv_cuda import (
     int8_dequant_gemv_cuda,
+    int8_dequant_gemv_cuda_warp,
     load_int8_dequant_gemv_cuda_extension,
 )
 
@@ -75,7 +76,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Benchmark PyTorch INT8 Dequant-GEMV reference "
-            "against the custom naive CUDA kernel."
+            "against the custom naive and warp CUDA kernels."
         )
     )
 
@@ -119,7 +120,7 @@ def parse_arguments() -> argparse.Namespace:
 def calculate_percentile(
     values: list[float],
     percentile: float,
-) -> float:
+) -> tuple[float, float]:
     ordered = sorted(
         values
     )
@@ -217,10 +218,21 @@ def verify_correctness(
             bias,
         )
 
+        warp_output = int8_dequant_gemv_cuda_warp(
+            x,
+            weight_int8,
+            scale,
+            bias,
+        )
+
         torch.cuda.synchronize()
 
         maximum_error = (
             reference_output - cuda_output
+        ).abs().max().item()
+
+        warp_maximum_error = (
+            reference_output - warp_output
         ).abs().max().item()
 
         torch.testing.assert_close(
@@ -230,7 +242,17 @@ def verify_correctness(
             atol=1e-4,
         )
 
-    return maximum_error
+        torch.testing.assert_close(
+            warp_output,
+            reference_output,
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+    return (
+        maximum_error,
+        warp_maximum_error,
+    )
 
 
 def run_benchmark_case(
@@ -270,7 +292,7 @@ def run_benchmark_case(
         dtype=torch.float32,
     )
 
-    maximum_error = verify_correctness(
+    maximum_error, warp_maximum_error = verify_correctness(
         x,
         weight_int8,
         scale,
@@ -288,6 +310,11 @@ def run_benchmark_case(
         f"{maximum_error:.8e}"
     )
 
+    print(
+        "Warp correctness maximum error: "
+        f"{warp_maximum_error:.8e}"
+    )
+
     reference_function = lambda: int8_dequant_gemv_reference(
         x,
         weight_int8,
@@ -296,6 +323,13 @@ def run_benchmark_case(
     )
 
     cuda_function = lambda: int8_dequant_gemv_cuda(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
+    warp_function = lambda: int8_dequant_gemv_cuda_warp(
         x,
         weight_int8,
         scale,
@@ -316,9 +350,26 @@ def run_benchmark_case(
         repeats_per_round=repeats_per_round,
     )
 
+    warp_statistics = benchmark_cuda_callable(
+        function=warp_function,
+        warmup_iterations=warmup_iterations,
+        measurement_rounds=measurement_rounds,
+        repeats_per_round=repeats_per_round,
+    )
+
     speedup = (
         reference_statistics.median_ms
         / cuda_statistics.median_ms
+    )
+
+    warp_speedup = (
+        reference_statistics.median_ms
+        / warp_statistics.median_ms
+    )
+
+    warp_speedup_vs_naive = (
+        cuda_statistics.median_ms
+        / warp_statistics.median_ms
     )
 
     print(
@@ -332,8 +383,23 @@ def run_benchmark_case(
     )
 
     print(
+        "CUDA Warp median:         "
+        f"{warp_statistics.median_ms:.6f} ms"
+    )
+
+    print(
         "CUDA Naive vs Reference:  "
         f"{speedup:.3f}x"
+    )
+
+    print(
+        "CUDA Warp vs Reference:   "
+        f"{warp_speedup:.3f}x"
+    )
+
+    print(
+        "CUDA Warp vs Naive:       "
+        f"{warp_speedup_vs_naive:.3f}x"
     )
 
     return [
@@ -364,6 +430,20 @@ def run_benchmark_case(
             minimum_ms=cuda_statistics.minimum_ms,
             p95_ms=cuda_statistics.p95_ms,
             speedup_vs_reference=speedup,
+        ),
+        BenchmarkResult(
+            implementation="cuda_warp",
+            rows=case.rows,
+            in_features=case.in_features,
+            out_features=case.out_features,
+            warmup_iterations=warmup_iterations,
+            measurement_rounds=measurement_rounds,
+            repeats_per_round=repeats_per_round,
+            mean_ms=warp_statistics.mean_ms,
+            median_ms=warp_statistics.median_ms,
+            minimum_ms=warp_statistics.minimum_ms,
+            p95_ms=warp_statistics.p95_ms,
+            speedup_vs_reference=warp_speedup,
         ),
     ]
 
@@ -426,7 +506,7 @@ def save_results_to_csv(
 
     output_path = (
         results_directory
-        / f"int8_dequant_gemv_naive_comparison_{timestamp}.csv"
+        / f"int8_dequant_gemv_warp_comparison_{timestamp}.csv"
     )
 
     fieldnames = [
@@ -498,7 +578,7 @@ def main() -> None:
         )
 
     print("=" * 72)
-    print("EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive")
+    print("EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive vs Warp")
     print("=" * 72)
     print("PyTorch version: ", torch.__version__)
     print("CUDA version:    ", torch.version.cuda)

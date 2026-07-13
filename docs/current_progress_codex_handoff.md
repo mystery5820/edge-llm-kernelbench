@@ -4,14 +4,73 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成；INT8 Dequant-GEMV CUDA Naive 已完成
-> 下一任务：INT8 Dequant-GEMV 正式 benchmark 与优化版本
+> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成；INT8 Dequant-GEMV Warp 优化已完成
+> 下一任务：INT8 Dequant-GEMV 正式 benchmark 与优化分析文档
 
 ---
 
 ## 0. 最新进展更新（2026-07-12 23:00）
 
-### 0.0 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
+### 0.0 INT8 Dequant-GEMV Phase 3 更新（2026-07-13）
+
+INT8 Dequant-GEMV Warp-level CUDA Kernel 已完成：
+
+- 新增 `kernels/int8_dequant_gemv/int8_dequant_gemv_warp_kernel.cu`；
+- C++ 新增 `forward_warp`；
+- Python 新增 `int8_dequant_gemv_cuda_warp()`；
+- `benchmarks/benchmark_int8_dequant_gemv.py` 已扩展为 PyTorch / CUDA Naive / CUDA Warp 三方比较；
+- Kernel 策略：
+
+```text
+一个 block 包含 8 个 warp
+每个 warp 计算同一 row 的一个 out_feature
+一个 block 同时计算 8 个 output[row, out_feature]
+warp 内使用 __shfl_down_sync 做 FP32 规约
+```
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/int8_dequant_gemv_cuda.py tests/test_int8_dequant_gemv_cuda.py benchmarks/benchmark_int8_dequant_gemv.py
+通过
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_int8_dequant_gemv_cuda.py -v
+10 passed in 3.56s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+137 passed in 4.57s
+```
+
+Benchmark 冒烟结果：
+
+```text
+rows=1, in=1024, out=1024
+Warp vs Reference：11.434x
+Warp vs Naive：    3.291x
+
+rows=1, in=2048, out=2048
+Warp vs Reference：26.753x
+Warp vs Naive：    2.570x
+
+rows=4, in=2048, out=2048
+Warp vs Reference：7.538x
+Warp vs Naive：    3.451x
+```
+
+说明：
+
+```text
+上述 benchmark 是小参数冒烟，临时 CSV 已删除，未作为正式结果保留。
+正式 benchmark 仍需结合运行时间重新选择 case / warmup / rounds / repeats。
+```
+
+下一步：
+
+```text
+为 INT8 Dequant-GEMV 选择正式 benchmark 参数，生成正式 CSV 和优化分析文档。
+```
+
+### 0.1 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
 
 INT8 Dequant-GEMV CUDA Naive Kernel 已完成：
 
@@ -55,7 +114,7 @@ benchmark_int8_dequant_gemv.py 已完成并通过小参数冒烟。
 下一步建议先评估 benchmark case 和参数，再生成正式结果。
 ```
 
-### 0.1 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
+### 0.2 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
 
 INT8 Dequant-GEMV PyTorch Reference 已完成：
 
@@ -98,7 +157,7 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 实现 INT8 Dequant-GEMV CUDA Naive Kernel 和 benchmark。
 ```
 
-### 0.2 RoPE Phase 3 更新（2026-07-12 23:11）
+### 0.3 RoPE Phase 3 更新（2026-07-12 23:11）
 
 RoPE Float4 CUDA Kernel 已完成：
 
@@ -156,7 +215,7 @@ RoPE Float4 数值正确。
 相比 Naive 有稳定但幅度较小的加速，主要收益在小规模 case 更明显。
 ```
 
-### 0.3 RoPE Phase 2 更新（2026-07-12 23:00）
+### 0.4 RoPE Phase 2 更新（2026-07-12 23:00）
 
 RoPE Naive CUDA Kernel 已完成：
 
@@ -225,7 +284,7 @@ RoPE 下一步：
 Phase 3：实现 RoPE 优化版本，例如 float2/float4 向量化、half2 或更细化的访存策略。
 ```
 
-### 0.4 RoPE Phase 1 更新（2026-07-12 22:24）
+### 0.5 RoPE Phase 1 更新（2026-07-12 22:24）
 
 RoPE PyTorch Reference 已完成：
 
@@ -261,7 +320,7 @@ RoPE 下一步：
 Phase 2 已完成，当前下一步为 RoPE 优化版本。
 ```
 
-### 0.5 RMSNorm Phase 3 更新（2026-07-12 22:11）
+### 0.6 RMSNorm Phase 3 更新（2026-07-12 22:11）
 
 Phase 3 已完成：
 
