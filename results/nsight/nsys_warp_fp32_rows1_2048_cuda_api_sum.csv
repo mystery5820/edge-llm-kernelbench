@@ -1,0 +1,21 @@
+
+NOTICE: Existing SQLite export found: results/nsight/nsys_warp_fp32_rows1_2048.sqlite
+        It is assumed file was previously exported from: results/nsight/nsys_warp_fp32_rows1_2048.nsys-rep
+        Consider using --force-export=true if needed.
+
+Processing [results/nsight/nsys_warp_fp32_rows1_2048.sqlite] with [/opt/nvidia/nsight-systems/2024.5.4/host-linux-armv8/reports/cuda_api_sum.py]... 
+Time (%),Total Time (ns),Num Calls,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+76.3,47832352,125,382658.8,46304.0,38752,25949056,2447803.4,cudaLaunchKernel
+16.0,10029472,1,10029472.0,10029472.0,10029472,10029472,0.0,cudaEventSynchronize
+2.6,1646912,2,823456.0,823456.0,508288,1138624,445714.9,cudaMalloc
+2.2,1395232,1,1395232.0,1395232.0,1395232,1395232,0.0,cudaDeviceSynchronize
+1.3,843648,1,843648.0,843648.0,843648,843648,0.0,cudaHostAlloc
+1.0,611360,1,611360.0,611360.0,611360,611360,0.0,cudaStreamSynchronize
+0.2,115648,1,115648.0,115648.0,115648,115648,0.0,cudaMemcpyAsync
+0.1,73664,2,36832.0,36832.0,12256,61408,34755.7,cudaEventCreateWithFlags
+0.1,54144,12,4512.0,4832.0,672,10880,3252.9,cudaStreamIsCapturing_v10000
+0.1,51136,2,25568.0,25568.0,23456,27680,2986.8,cudaEventRecordWithFlags_v11010
+0.0,22976,2,11488.0,11488.0,4928,18048,9277.2,cudaEventDestroy
+0.0,13760,2,6880.0,6880.0,3360,10400,4978.0,cudaEventQuery
+0.0,2912,1,2912.0,2912.0,2912,2912,0.0,cuModuleGetLoadingMode
+

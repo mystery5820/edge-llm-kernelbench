@@ -63,12 +63,15 @@ results/int8_dequant_gemv_fp16_vec4_comparison_20260713_135528.csv
 results/int8_dequant_gemv_fp16_half2_comparison_20260713_142951.csv
 results/int8_dequant_gemv_fp32_wide_comparison_20260713_144325.csv
 results/int8_dequant_gemv_fp16_wide_comparison_20260713_144341.csv
+results/nsight/*_cuda_gpu_kern_sum.csv
+results/nsight/*_cuda_api_sum.csv
 ```
 
 优化报告：
 
 ```text
 docs/03_int8_dequant_gemv_optimization.md
+docs/04_int8_dequant_gemv_nsight_profile.md
 ```
 
 ---
@@ -216,6 +219,21 @@ Wide 版本把 block 从 8 warp 扩到 16 warp，只有较小 rows=1 case 有小
 DP4A 不能直接用于 FP32/FP16 activation 主乘加路径；需要 INT8 activation 路径后再评估。
 ```
 
+Nsight Systems 关键结论：
+
+| implementation | dtype | rows | in | out | kernel avg us | launch median us |
+|---|---|---:|---:|---:|---:|---:|
+| warp | FP32 | 1 | 1024 | 1024 | 57.113 | 41.088 |
+| wide | FP32 | 1 | 1024 | 1024 | 58.056 | 41.440 |
+| warp | FP32 | 1 | 2048 | 2048 | 237.469 | 46.304 |
+| vec4 | FP32 | 1 | 2048 | 2048 | 225.142 | 44.544 |
+| warp | FP32 | 4 | 2048 | 2048 | 590.967 | 46.368 |
+| vec4 | FP32 | 4 | 2048 | 2048 | 362.124 | 40.704 |
+| vec4 | FP16 | 4 | 2048 | 2048 | 594.831 | 34.944 |
+| half2 | FP16 | 4 | 2048 | 2048 | 414.319 | 43.184 |
+
+这组 profiling 说明：rows=1 小 shape 已明显受 launch / 调度成本影响；Vec4 和 Half2 的收益主要在 rows=4 时变成稳定的 kernel 级收益；Wide 不是稳定主线。
+
 ---
 
 ## 6. Cross-Operator Observations
@@ -258,7 +276,7 @@ INT8 Dequant-GEMV 的 warp-level 版本比 naive 明显更快，因为它把：
 2. RMSNorm / RoPE 尚未完成 FP16/half2 版本，INT8 GEMV half2 收益仍有限；
 3. INT8 GEMV 尚未使用 DP4A，因为还没有 INT8 activation 路径；
 4. benchmark 尚未统一锁频和温度记录；
-5. 没有 Nsight Compute / Nsight Systems profiling 数据；
+5. 已有 Nsight Systems profiling 数据，但 Nsight Compute hardware counter 受权限限制暂未采到；
 6. 没有 TileLang / MXMACA 迁移实现。
 
 ---
@@ -288,7 +306,7 @@ INT8 activation 路径与 DP4A；
 ```text
 迁移一个算子到 TileLang；
 整理 CUDA 到 MXMACA / 国产 GPU 的迁移笔记；
-补 Nsight profiling 截图和瓶颈分析。
+在有权限的环境补 Nsight Compute occupancy / memory throughput / stall reason。
 ```
 
 ---

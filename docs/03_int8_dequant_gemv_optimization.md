@@ -2,7 +2,7 @@
 
 > 日期：2026-07-13  
 > 平台：NVIDIA Jetson Orin Nano Super 8GB  
-> 当前阶段：PyTorch Reference、Naive CUDA、Warp-level CUDA、X-tile 实验、Vec4 CUDA、FP16 activation、Half2 CUDA、Wide CUDA 实验已完成
+> 当前阶段：PyTorch Reference、Naive CUDA、Warp-level CUDA、X-tile 实验、Vec4 CUDA、FP16 activation、Half2 CUDA、Wide CUDA 实验、Nsight Systems profiling 已完成
 
 ---
 
@@ -365,6 +365,8 @@ results/int8_dequant_gemv_fp32_wide_comparison_20260713_144325.csv
 results/int8_dequant_gemv_fp32_wide_comparison_console_20260713_144321.log
 results/int8_dequant_gemv_fp16_wide_comparison_20260713_144341.csv
 results/int8_dequant_gemv_fp16_wide_comparison_console_20260713_144337.log
+results/nsight/*_cuda_gpu_kern_sum.csv
+results/nsight/*_cuda_api_sum.csv
 ```
 
 ---
@@ -575,6 +577,47 @@ FP16 rows=4, in=2048, out=2048：Wide vs Warp 0.964x
 - 对 FP16 rows=4，Half2 仍是最佳路径；
 - 继续简单增加 warp/block 不是主要优化方向，后续更应转向 rows=1 专门映射、跨 output channel 的 x 复用，或 Nsight profiling。
 
+### 6.9 Nsight Systems profiling
+
+Profiling 报告：
+
+```text
+docs/04_int8_dequant_gemv_nsight_profile.md
+```
+
+本轮使用独立 driver 避免 benchmark 中 PyTorch reference、extension load、多实现循环干扰：
+
+```text
+scripts/profile_int8_dequant_gemv.py
+```
+
+Nsight Compute 当前受权限限制，无法采 hardware counter / occupancy：
+
+```text
+==WARNING== Insufficient privileges to launch app for profiling. Launch app with root privileges
+```
+
+Nsight Systems 已成功采集 CUDA timeline 和 kernel summary。关键量化结果：
+
+| implementation | dtype | rows | in | out | event mean us | nsys kernel avg us | launch median us |
+|---|---|---:|---:|---:|---:|---:|---:|
+| warp | FP32 | 1 | 1024 | 1024 | 123.004 | 57.113 | 41.088 |
+| wide | FP32 | 1 | 1024 | 1024 | 125.884 | 58.056 | 41.440 |
+| warp | FP32 | 1 | 2048 | 2048 | 246.322 | 237.469 | 46.304 |
+| vec4 | FP32 | 1 | 2048 | 2048 | 242.667 | 225.142 | 44.544 |
+| warp | FP32 | 4 | 2048 | 2048 | 570.708 | 590.967 | 46.368 |
+| vec4 | FP32 | 4 | 2048 | 2048 | 343.840 | 362.124 | 40.704 |
+| vec4 | FP16 | 4 | 2048 | 2048 | 575.322 | 594.831 | 34.944 |
+| half2 | FP16 | 4 | 2048 | 2048 | 389.008 | 414.319 | 43.184 |
+
+结论：
+
+- `rows=1, 1024x1024` 下 custom kernel median 约 57 us，`cudaLaunchKernel` median 约 41 us，launch 已接近 kernel 时间的 72%；
+- `rows=1, 2048x2048` 下 Vec4 kernel avg 只比 Warp 快约 5.5%，所以 benchmark 中基本持平是合理结果；
+- `rows=4, 2048x2048` 下 Vec4 FP32 kernel avg 相比 Warp 约 1.632x，说明向量化读取在有效工作量增加后才稳定体现；
+- FP16 rows=4 下 Half2 相比 Vec4 fallback kernel avg 约 1.436x，说明 FP16 scalar fallback 是明确瓶颈；
+- Wide 在 Nsight Systems 下没有复现 rows=1 小 case 的稳定正收益，继续增加 warp/block 不是主线。
+
 ---
 
 ## 7. 当前瓶颈
@@ -587,8 +630,9 @@ FP16 rows=4, in=2048, out=2048：Wide vs Warp 0.964x
 4. 没有使用 DP4A，因为当前 activation 不是 INT8 packed activation；
 5. Half2 已支持，但 rows=1 场景没有稳定收益；
 6. Wide 已验证，继续增加 warp/block 没有稳定收益；
-7. Vec4 快路径仍只支持 FP32 activation；
-8. benchmark 参数还不是与前两个算子完全一致的正式长跑参数。
+7. Nsight Systems 已量化 launch / kernel 时间，但 Nsight Compute hardware counter 受权限限制暂未采到；
+8. Vec4 快路径仍只支持 FP32 activation；
+9. benchmark 参数还不是与前两个算子完全一致的正式长跑参数。
 
 ---
 
@@ -600,8 +644,8 @@ FP16 rows=4, in=2048, out=2048：Wide vs Warp 0.964x
 2. 设计跨 output channel 的 x 复用策略，而不是单纯增加 warp/block；
 3. 设计 INT8 activation 路径，再评估 DP4A；
 4. 如果继续 x tile 复用，需要减少同步或改变 block 内协作方式；
-5. 对 half2 路径做 Nsight profiling，确认瓶颈是转换、访存还是调度；
-6. 重新设计 benchmark case，补充锁频、温度和 Nsight profiling 数据。
+5. 需要 root 或放开 perf counter 权限后，用 Nsight Compute 补充 occupancy、memory throughput 和 warp stall reason；
+6. 重新设计 benchmark case，补充锁频、温度和更长时间 profiling 数据。
 
 ---
 
@@ -643,5 +687,6 @@ Vec4 版本在 rows=4, in=2048, out=2048 场景相对 Warp 达到 1.430x，在 r
 FP16 activation 已完成基础功能支持，但当前还不是 half2 优化。
 Half2 版本在 rows=4, in=2048, out=2048 场景相对 Warp 达到 1.076x，但 rows=1 场景没有稳定收益。
 Wide 版本证明继续单纯增加 warp/block 没有稳定收益。
-下一阶段最有价值的方向是 rows=1 专门 kernel、跨 output channel 的 x 复用、INT8 activation + DP4A，以及 Nsight profiling。
+Nsight Systems profiling 量化了 rows=1 的 launch 占比、Vec4 rows=4 的 kernel 级收益和 Half2 rows=4 的瓶颈改善。
+下一阶段最有价值的方向是 rows=1 专门 kernel、跨 output channel 的 x 复用、INT8 activation + DP4A，以及 Nsight Compute hardware counter 补采。
 ```
