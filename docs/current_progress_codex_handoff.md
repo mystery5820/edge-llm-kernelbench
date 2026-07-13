@@ -4,8 +4,8 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成；INT8 Dequant-GEMV Warp 优化已完成
-> 下一任务：INT8 Dequant-GEMV 正式 benchmark 与优化分析文档
+> 最新状态：RMSNorm、RoPE、INT8 Dequant-GEMV 三个算子阶段性闭环已完成
+> 下一任务：整理总览报告或继续 INT8 DP4A / x tile 复用优化
 
 ---
 
@@ -16,6 +16,8 @@
 INT8 Dequant-GEMV Warp-level CUDA Kernel 已完成：
 
 - 新增 `kernels/int8_dequant_gemv/int8_dequant_gemv_warp_kernel.cu`；
+- 新增 INT8 Dequant-GEMV 阶段性优化分析报告：
+  - `docs/03_int8_dequant_gemv_optimization.md`
 - C++ 新增 `forward_warp`；
 - Python 新增 `int8_dequant_gemv_cuda_warp()`；
 - `benchmarks/benchmark_int8_dequant_gemv.py` 已扩展为 PyTorch / CUDA Naive / CUDA Warp 三方比较；
@@ -41,33 +43,35 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 137 passed in 4.57s
 ```
 
-Benchmark 冒烟结果：
+Benchmark 结果：
 
 ```text
+参数：warmup=5, rounds=10, repeats=10
+
 rows=1, in=1024, out=1024
-Warp vs Reference：11.434x
-Warp vs Naive：    3.291x
+Warp vs Reference：10.789x
+Warp vs Naive：    2.509x
 
 rows=1, in=2048, out=2048
-Warp vs Reference：26.753x
-Warp vs Naive：    2.570x
+Warp vs Reference：19.481x
+Warp vs Naive：    2.649x
 
 rows=4, in=2048, out=2048
-Warp vs Reference：7.538x
-Warp vs Naive：    3.451x
+Warp vs Reference：6.387x
+Warp vs Naive：    3.200x
 ```
 
-说明：
+结果文件：
 
 ```text
-上述 benchmark 是小参数冒烟，临时 CSV 已删除，未作为正式结果保留。
-正式 benchmark 仍需结合运行时间重新选择 case / warmup / rounds / repeats。
+results/int8_dequant_gemv_warp_comparison_20260713_122659.csv
+results/int8_dequant_gemv_warp_comparison_console_20260713_122655.log
 ```
 
 下一步：
 
 ```text
-为 INT8 Dequant-GEMV 选择正式 benchmark 参数，生成正式 CSV 和优化分析文档。
+继续 INT8 DP4A / x tile 复用优化，或整理项目总览报告。
 ```
 
 ### 0.1 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）

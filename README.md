@@ -54,6 +54,7 @@
 - [x] INT8 Dequant-GEMV PyTorch Reference
 - [x] INT8 Dequant-GEMV CUDA Naive Kernel
 - [x] INT8 Dequant-GEMV Optimized Kernel
+- [x] INT8 Dequant-GEMV Optimization Report
 
 ## 项目目标
 

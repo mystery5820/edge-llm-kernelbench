@@ -1,0 +1,62 @@
+========================================================================
+EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive vs Warp
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Warmup calls:     5
+Measure rounds:   10
+Repeats/round:    10
+
+Loading INT8 Dequant-GEMV CUDA extension...
+INT8 Dequant-GEMV CUDA extension loaded.
+
+Case: rows=1, in_features=1024, out_features=1024
+CUDA correctness maximum error: 9.91821289e-05
+Warp correctness maximum error: 1.22070312e-04
+PyTorch Reference median: 0.408277 ms
+CUDA Naive median:        0.094942 ms
+CUDA Warp median:         0.037843 ms
+CUDA Naive vs Reference:  4.300x
+CUDA Warp vs Reference:   10.789x
+CUDA Warp vs Naive:       2.509x
+
+Case: rows=1, in_features=2048, out_features=2048
+CUDA correctness maximum error: 1.22070312e-04
+Warp correctness maximum error: 1.22070312e-04
+PyTorch Reference median: 1.539941 ms
+CUDA Naive median:        0.209438 ms
+CUDA Warp median:         0.079050 ms
+CUDA Naive vs Reference:  7.353x
+CUDA Warp vs Reference:   19.481x
+CUDA Warp vs Naive:       2.649x
+
+Case: rows=4, in_features=2048, out_features=2048
+CUDA correctness maximum error: 2.44140625e-04
+Warp correctness maximum error: 2.15530396e-04
+PyTorch Reference median: 1.453798 ms
+CUDA Naive median:        0.728413 ms
+CUDA Warp median:         0.227621 ms
+CUDA Naive vs Reference:  1.996x
+CUDA Warp vs Reference:   6.387x
+CUDA Warp vs Naive:       3.200x
+
+
+================================================================================================================
+INT8 Dequant-GEMV Benchmark Summary
+================================================================================================================
+implementation          rows        in       out      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+----------------------------------------------------------------------------------------------------------------
+pytorch_reference          1      1024      1024      0.534828      0.408277      0.406954      0.753686      1.000x
+cuda_naive                 1      1024      1024      0.095040      0.094942      0.094797      0.095354      4.300x
+cuda_warp                  1      1024      1024      0.037979      0.037843      0.036707      0.039235     10.789x
+pytorch_reference          1      2048      2048      1.778001      1.539941      1.386502      2.797814      1.000x
+cuda_naive                 1      2048      2048      0.209450      0.209438      0.209021      0.209859      7.353x
+cuda_warp                  1      2048      2048      0.079180      0.079050      0.078928      0.079760     19.481x
+pytorch_reference          4      2048      2048      1.609148      1.453798      1.452122      1.908752      1.000x
+cuda_naive                 4      2048      2048      0.728240      0.728413      0.727091      0.728717      1.996x
+cuda_warp                  4      2048      2048      0.227679      0.227621      0.227491      0.227952      6.387x
+================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/int8_dequant_gemv_warp_comparison_20260713_122659.csv
