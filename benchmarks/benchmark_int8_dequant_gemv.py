@@ -29,6 +29,7 @@ if str(PYTHON_DIRECTORY) not in sys.path:
 from edge_kernelbench.int8_dequant_gemv import int8_dequant_gemv_reference
 from edge_kernelbench.int8_dequant_gemv_cuda import (
     int8_dequant_gemv_cuda,
+    int8_dequant_gemv_cuda_half2,
     int8_dequant_gemv_cuda_tiled,
     int8_dequant_gemv_cuda_vec4,
     int8_dequant_gemv_cuda_warp,
@@ -252,6 +253,16 @@ def verify_correctness(
             bias,
         )
 
+        half2_output = None
+
+        if x.dtype == torch.float16:
+            half2_output = int8_dequant_gemv_cuda_half2(
+                x,
+                weight_int8,
+                scale,
+                bias,
+            )
+
         torch.cuda.synchronize()
 
         maximum_error = (
@@ -269,6 +280,13 @@ def verify_correctness(
         vec4_maximum_error = (
             reference_output - vec4_output
         ).abs().max().item()
+
+        half2_maximum_error = None
+
+        if half2_output is not None:
+            half2_maximum_error = (
+                reference_output - half2_output
+            ).abs().max().item()
 
         tolerance = (
             2e-2
@@ -304,11 +322,20 @@ def verify_correctness(
             atol=tolerance,
         )
 
+        if half2_output is not None:
+            torch.testing.assert_close(
+                half2_output,
+                reference_output,
+                rtol=tolerance,
+                atol=tolerance,
+            )
+
     return (
         maximum_error,
         warp_maximum_error,
         tiled_maximum_error,
         vec4_maximum_error,
+        half2_maximum_error,
     )
 
 
@@ -355,6 +382,7 @@ def run_benchmark_case(
         warp_maximum_error,
         tiled_maximum_error,
         vec4_maximum_error,
+        half2_maximum_error,
     ) = verify_correctness(
         x,
         weight_int8,
@@ -389,6 +417,12 @@ def run_benchmark_case(
         f"{vec4_maximum_error:.8e}"
     )
 
+    if half2_maximum_error is not None:
+        print(
+            "Half2 correctness maximum error: "
+            f"{half2_maximum_error:.8e}"
+        )
+
     reference_function = lambda: int8_dequant_gemv_reference(
         x,
         weight_int8,
@@ -418,6 +452,13 @@ def run_benchmark_case(
     )
 
     vec4_function = lambda: int8_dequant_gemv_cuda_vec4(
+        x,
+        weight_int8,
+        scale,
+        bias,
+    )
+
+    half2_function = lambda: int8_dequant_gemv_cuda_half2(
         x,
         weight_int8,
         scale,
@@ -458,6 +499,16 @@ def run_benchmark_case(
         measurement_rounds=measurement_rounds,
         repeats_per_round=repeats_per_round,
     )
+
+    half2_statistics = None
+
+    if activation_dtype == torch.float16:
+        half2_statistics = benchmark_cuda_callable(
+            function=half2_function,
+            warmup_iterations=warmup_iterations,
+            measurement_rounds=measurement_rounds,
+            repeats_per_round=repeats_per_round,
+        )
 
     speedup = (
         reference_statistics.median_ms
@@ -504,6 +555,26 @@ def run_benchmark_case(
         / vec4_statistics.median_ms
     )
 
+    half2_speedup = None
+    half2_speedup_vs_naive = None
+    half2_speedup_vs_warp = None
+
+    if half2_statistics is not None:
+        half2_speedup = (
+            reference_statistics.median_ms
+            / half2_statistics.median_ms
+        )
+
+        half2_speedup_vs_naive = (
+            cuda_statistics.median_ms
+            / half2_statistics.median_ms
+        )
+
+        half2_speedup_vs_warp = (
+            warp_statistics.median_ms
+            / half2_statistics.median_ms
+        )
+
     print(
         "PyTorch Reference median: "
         f"{reference_statistics.median_ms:.6f} ms"
@@ -529,6 +600,12 @@ def run_benchmark_case(
         f"{vec4_statistics.median_ms:.6f} ms"
     )
 
+    if half2_statistics is not None:
+        print(
+            "CUDA Half2 median:        "
+            f"{half2_statistics.median_ms:.6f} ms"
+        )
+
     print(
         "CUDA Naive vs Reference:  "
         f"{speedup:.3f}x"
@@ -549,6 +626,12 @@ def run_benchmark_case(
         f"{vec4_speedup:.3f}x"
     )
 
+    if half2_speedup is not None:
+        print(
+            "CUDA Half2 vs Reference:  "
+            f"{half2_speedup:.3f}x"
+        )
+
     print(
         "CUDA Warp vs Naive:       "
         f"{warp_speedup_vs_naive:.3f}x"
@@ -564,6 +647,12 @@ def run_benchmark_case(
         f"{vec4_speedup_vs_naive:.3f}x"
     )
 
+    if half2_speedup_vs_naive is not None:
+        print(
+            "CUDA Half2 vs Naive:      "
+            f"{half2_speedup_vs_naive:.3f}x"
+        )
+
     print(
         "CUDA Tiled vs Warp:       "
         f"{tiled_speedup_vs_warp:.3f}x"
@@ -574,7 +663,13 @@ def run_benchmark_case(
         f"{vec4_speedup_vs_warp:.3f}x"
     )
 
-    return [
+    if half2_speedup_vs_warp is not None:
+        print(
+            "CUDA Half2 vs Warp:       "
+            f"{half2_speedup_vs_warp:.3f}x"
+        )
+
+    results = [
         BenchmarkResult(
             implementation="pytorch_reference",
             activation_dtype=str(activation_dtype).replace(
@@ -667,6 +762,33 @@ def run_benchmark_case(
         ),
     ]
 
+    if (
+        half2_statistics is not None
+        and half2_speedup is not None
+    ):
+        results.append(
+            BenchmarkResult(
+                implementation="cuda_half2",
+                activation_dtype=str(activation_dtype).replace(
+                    "torch.",
+                    "",
+                ),
+                rows=case.rows,
+                in_features=case.in_features,
+                out_features=case.out_features,
+                warmup_iterations=warmup_iterations,
+                measurement_rounds=measurement_rounds,
+                repeats_per_round=repeats_per_round,
+                mean_ms=half2_statistics.mean_ms,
+                median_ms=half2_statistics.median_ms,
+                minimum_ms=half2_statistics.minimum_ms,
+                p95_ms=half2_statistics.p95_ms,
+                speedup_vs_reference=half2_speedup,
+            )
+        )
+
+    return results
+
 
 def print_summary_table(
     results: list[BenchmarkResult],
@@ -727,9 +849,18 @@ def save_results_to_csv(
         "%Y%m%d_%H%M%S"
     )
 
+    optimized_name = (
+        "half2"
+        if any(
+            result.implementation == "cuda_half2"
+            for result in results
+        )
+        else "vec4"
+    )
+
     output_path = (
         results_directory
-        / f"int8_dequant_gemv_{dtype_name}_vec4_comparison_{timestamp}.csv"
+        / f"int8_dequant_gemv_{dtype_name}_{optimized_name}_comparison_{timestamp}.csv"
     )
 
     fieldnames = [
@@ -803,7 +934,7 @@ def main() -> None:
         )
 
     print("=" * 72)
-    print("EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive vs Warp vs Tiled vs Vec4")
+    print("EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive vs Warp vs Tiled vs Vec4 vs Half2")
     print("=" * 72)
     print("PyTorch version: ", torch.__version__)
     print("CUDA version:    ", torch.version.cuda)

@@ -37,6 +37,14 @@ torch::Tensor int8_dequant_gemv_vec4_cuda_launcher(
 );
 
 
+torch::Tensor int8_dequant_gemv_half2_cuda_launcher(
+    torch::Tensor x,
+    torch::Tensor weight_int8,
+    torch::Tensor scale,
+    torch::Tensor bias
+);
+
+
 void validate_int8_dequant_gemv_inputs(
     const torch::Tensor& x,
     const torch::Tensor& weight_int8,
@@ -283,6 +291,35 @@ torch::Tensor int8_dequant_gemv_vec4_forward(
 }
 
 
+torch::Tensor int8_dequant_gemv_half2_forward(
+    torch::Tensor x,
+    torch::Tensor weight_int8,
+    torch::Tensor scale,
+    torch::Tensor bias
+) {
+    validate_int8_dequant_gemv_inputs(
+        x,
+        weight_int8,
+        scale,
+        bias
+    );
+
+    TORCH_CHECK(
+        x.scalar_type() == torch::kFloat16,
+        "the INT8 Dequant-GEMV half2 CUDA kernel supports only float16 x, "
+        "but received dtype=",
+        x.scalar_type()
+    );
+
+    return int8_dequant_gemv_half2_cuda_launcher(
+        x,
+        weight_int8,
+        scale,
+        bias
+    );
+}
+
+
 PYBIND11_MODULE(
     TORCH_EXTENSION_NAME,
     module
@@ -309,5 +346,11 @@ PYBIND11_MODULE(
         "forward_vec4",
         &int8_dequant_gemv_vec4_forward,
         "INT8 Dequant-GEMV vec4 CUDA forward"
+    );
+
+    module.def(
+        "forward_half2",
+        &int8_dequant_gemv_half2_forward,
+        "INT8 Dequant-GEMV half2 CUDA forward"
     );
 }

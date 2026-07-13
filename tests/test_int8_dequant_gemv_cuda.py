@@ -22,6 +22,7 @@ if str(PYTHON_DIRECTORY) not in sys.path:
 from edge_kernelbench.int8_dequant_gemv import int8_dequant_gemv_reference
 from edge_kernelbench.int8_dequant_gemv_cuda import (
     int8_dequant_gemv_cuda,
+    int8_dequant_gemv_cuda_half2,
     int8_dequant_gemv_cuda_tiled,
     int8_dequant_gemv_cuda_vec4,
     int8_dequant_gemv_cuda_warp,
@@ -115,6 +116,16 @@ def assert_cuda_matches_reference(
         bias,
     )
 
+    half2_actual = None
+
+    if dtype == torch.float16:
+        half2_actual = int8_dequant_gemv_cuda_half2(
+            x,
+            weight_int8,
+            scale,
+            bias,
+        )
+
     torch.cuda.synchronize()
 
     tolerance = (
@@ -171,6 +182,21 @@ def assert_cuda_matches_reference(
         rtol=tolerance,
         atol=tolerance,
     )
+
+    if half2_actual is not None:
+        torch.testing.assert_close(
+            half2_actual,
+            expected,
+            rtol=tolerance,
+            atol=tolerance,
+        )
+
+        torch.testing.assert_close(
+            half2_actual,
+            warp_actual,
+            rtol=tolerance,
+            atol=tolerance,
+        )
 
 
 def test_cuda_known_values() -> None:
@@ -402,7 +428,7 @@ def test_cuda_fp16_output_metadata() -> None:
         dtype=torch.float32,
     )
 
-    output = int8_dequant_gemv_cuda_vec4(
+    output = int8_dequant_gemv_cuda_half2(
         x,
         weight_int8,
         scale,
@@ -416,6 +442,39 @@ def test_cuda_fp16_output_metadata() -> None:
     assert output.dtype == torch.float16
     assert output.device.type == "cuda"
     assert output.is_contiguous()
+
+
+def test_cuda_half2_rejects_fp32_input() -> None:
+    x = torch.randn(
+        16,
+        device="cuda",
+        dtype=torch.float32,
+    )
+    weight_int8 = torch.randint(
+        -8,
+        8,
+        (
+            12,
+            16,
+        ),
+        device="cuda",
+        dtype=torch.int8,
+    )
+    scale = torch.rand(
+        12,
+        device="cuda",
+        dtype=torch.float32,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="half2 CUDA kernel supports only float16 x",
+    ):
+        int8_dequant_gemv_cuda_half2(
+            x,
+            weight_int8,
+            scale,
+        )
 
 
 def test_cuda_empty_rows() -> None:

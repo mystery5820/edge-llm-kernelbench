@@ -68,12 +68,18 @@ def load_int8_dequant_gemv_cuda_extension(
         / "int8_dequant_gemv_vec4_kernel.cu"
     )
 
+    half2_cuda_source = (
+        kernel_directory
+        / "int8_dequant_gemv_half2_kernel.cu"
+    )
+
     sources = [
         cpp_source,
         cuda_source,
         warp_cuda_source,
         tiled_cuda_source,
         vec4_cuda_source,
+        half2_cuda_source,
     ]
 
     missing_sources = [
@@ -244,6 +250,38 @@ def int8_dequant_gemv_cuda_vec4(
         bias_for_extension = bias
 
     return extension.forward_vec4(
+        x,
+        weight_int8,
+        scale,
+        bias_for_extension,
+    )
+
+
+def int8_dequant_gemv_cuda_half2(
+    x: torch.Tensor,
+    weight_int8: torch.Tensor,
+    scale: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """
+    调用 INT8 Dequant-GEMV half2 CUDA Kernel。
+
+    仅支持 FP16 x。对齐且 in_features 为 2 的倍数时使用 half2 快路径；
+    否则 kernel 内部回退到标量 half warp 路径。
+    """
+
+    extension = load_int8_dequant_gemv_cuda_extension()
+
+    if bias is None:
+        bias_for_extension = torch.empty(
+            0,
+            device=x.device,
+            dtype=torch.float32,
+        )
+    else:
+        bias_for_extension = bias
+
+    return extension.forward_half2(
         x,
         weight_int8,
         scale,
