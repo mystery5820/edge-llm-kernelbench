@@ -52,7 +52,8 @@
 - [x] RoPE CUDA Optimized Kernel
 - [x] RoPE Optimization Report
 - [x] INT8 Dequant-GEMV PyTorch Reference
-- [ ] INT8 Dequant-GEMV CUDA Kernel
+- [x] INT8 Dequant-GEMV CUDA Naive Kernel
+- [ ] INT8 Dequant-GEMV Optimized Kernel
 
 ## 项目目标
 

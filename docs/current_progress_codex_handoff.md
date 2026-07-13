@@ -4,14 +4,58 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成；INT8 Dequant-GEMV Reference 已完成
-> 下一任务：INT8 Dequant-GEMV CUDA Naive Kernel
+> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成；INT8 Dequant-GEMV CUDA Naive 已完成
+> 下一任务：INT8 Dequant-GEMV 正式 benchmark 与优化版本
 
 ---
 
 ## 0. 最新进展更新（2026-07-12 23:00）
 
-### 0.0 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
+### 0.0 INT8 Dequant-GEMV Phase 2 更新（2026-07-13）
+
+INT8 Dequant-GEMV CUDA Naive Kernel 已完成：
+
+- 新增 `kernels/int8_dequant_gemv/int8_dequant_gemv.cpp`；
+- 新增 `kernels/int8_dequant_gemv/int8_dequant_gemv_kernel.cu`；
+- 新增 `python/edge_kernelbench/int8_dequant_gemv_cuda.py`；
+- 新增 `tests/test_int8_dequant_gemv_cuda.py`；
+- 新增 `benchmarks/benchmark_int8_dequant_gemv.py`；
+- 当前 CUDA 版本支持：
+  - FP32 `x`
+  - INT8 `weight_int8`
+  - FP32 per-output `scale`
+  - optional FP32 `bias`
+  - `x` 形状 `[..., in_features]`
+- Kernel 策略：
+
+```text
+一个 CUDA block 计算一个 output[row, out_feature]
+block 内 256 线程对 in_features 做 FP32 规约
+最终乘 scale[out_feature] 并加 optional bias
+```
+
+验证结果：
+
+```text
+python -m py_compile python/edge_kernelbench/int8_dequant_gemv_cuda.py tests/test_int8_dequant_gemv_cuda.py benchmarks/benchmark_int8_dequant_gemv.py
+通过
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_int8_dequant_gemv_cuda.py -v
+10 passed in 3.56s
+
+MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
+137 passed in 4.59s
+```
+
+Benchmark 状态：
+
+```text
+benchmark_int8_dequant_gemv.py 已完成并通过小参数冒烟。
+由于当前 naive kernel 一个输出元素一个 block，正式参数 warmup=20/rounds=30/repeats=50 运行时间较长，正式 CSV 暂未保留。
+下一步建议先评估 benchmark case 和参数，再生成正式结果。
+```
+
+### 0.1 INT8 Dequant-GEMV Phase 1 更新（2026-07-13）
 
 INT8 Dequant-GEMV PyTorch Reference 已完成：
 
@@ -54,7 +98,7 @@ MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
 实现 INT8 Dequant-GEMV CUDA Naive Kernel 和 benchmark。
 ```
 
-### 0.1 RoPE Phase 3 更新（2026-07-12 23:11）
+### 0.2 RoPE Phase 3 更新（2026-07-12 23:11）
 
 RoPE Float4 CUDA Kernel 已完成：
 
@@ -112,7 +156,7 @@ RoPE Float4 数值正确。
 相比 Naive 有稳定但幅度较小的加速，主要收益在小规模 case 更明显。
 ```
 
-### 0.2 RoPE Phase 2 更新（2026-07-12 23:00）
+### 0.3 RoPE Phase 2 更新（2026-07-12 23:00）
 
 RoPE Naive CUDA Kernel 已完成：
 
@@ -181,7 +225,7 @@ RoPE 下一步：
 Phase 3：实现 RoPE 优化版本，例如 float2/float4 向量化、half2 或更细化的访存策略。
 ```
 
-### 0.3 RoPE Phase 1 更新（2026-07-12 22:24）
+### 0.4 RoPE Phase 1 更新（2026-07-12 22:24）
 
 RoPE PyTorch Reference 已完成：
 
@@ -217,7 +261,7 @@ RoPE 下一步：
 Phase 2 已完成，当前下一步为 RoPE 优化版本。
 ```
 
-### 0.4 RMSNorm Phase 3 更新（2026-07-12 22:11）
+### 0.5 RMSNorm Phase 3 更新（2026-07-12 22:11）
 
 Phase 3 已完成：
 
