@@ -2,7 +2,7 @@
 
 > 日期：2026-07-13  
 > 平台：NVIDIA Jetson Orin Nano Super 8GB  
-> 当前阶段：PyTorch Reference、Naive CUDA、Warp-level CUDA、X-tile 实验、Vec4 CUDA 已完成
+> 当前阶段：PyTorch Reference、Naive CUDA、Warp-level CUDA、X-tile 实验、Vec4 CUDA、FP16 activation 支持已完成
 
 ---
 
@@ -20,11 +20,11 @@ output = x @ dequant_weight.T + bias
 其中：
 
 ```text
-x:           [..., in_features], FP32 当前 CUDA 版本支持范围
+x:           [..., in_features], FP32 / FP16 当前 CUDA 版本支持范围
 weight_int8: [out_features, in_features], INT8
 scale:       [out_features], FP32 per-output scale
 bias:        [out_features], optional FP32
-output:      [..., out_features], FP32
+output:      [..., out_features], 与 x dtype 一致
 ```
 
 这个算子的重点不是单独做矩阵乘，而是避免显式生成完整 `dequant_weight` 后再调用通用 matmul。CUDA kernel 可以把反量化和 GEMV 累加融合到一个过程里。
@@ -188,8 +188,37 @@ weight_int8 使用 char4 读取
 说明：
 
 ```text
-当前算子仍是 FP32 x * INT8 weight，再做 FP32 accumulation。
-DP4A 需要两侧输入都按 INT8 打包；在 x 仍为 FP32 的前提下，不能直接使用 DP4A 替代当前乘加路径。
+当前算子仍是 FP32/FP16 activation * INT8 weight，再做 FP32 accumulation。
+DP4A 需要两侧输入都按 INT8 打包；在 x 仍为 FP32/FP16 的前提下，不能直接使用 DP4A 替代当前乘加路径。
+```
+
+### 2.6 FP16 activation support
+
+实现范围：
+
+```text
+CUDA Naive
+CUDA Warp-level
+CUDA X-tile
+CUDA Vec4 fallback path
+```
+
+实现策略：
+
+```text
+x 支持 FP32 / FP16
+weight_int8 保持 INT8
+scale / bias 保持 FP32
+内部 dot product 和 reduction 使用 FP32 accumulation
+output dtype 与 x dtype 一致
+```
+
+说明：
+
+```text
+当前 FP16 activation 是功能支持，不是 half2 优化。
+Vec4 的 float4 + char4 快路径仍只用于 FP32 x；
+FP16 x 在 Vec4 API 下会走标量 warp fallback。
 ```
 
 ---
@@ -216,17 +245,18 @@ tests/test_int8_dequant_gemv_cuda.py
 - CUDA Tiled vs Reference / Warp；
 - CUDA Vec4 vs Reference / Warp；
 - Vec4 标量 fallback 路径；
+- FP16 activation CUDA Naive / Warp / Tiled / Vec4；
 - empty rows；
-- CPU input、FP16 CUDA input、non-contiguous input 等非法输入。
+- CPU input、float64 CUDA input、non-contiguous input 等非法输入。
 
 最近验证结果：
 
 ```text
 MAX_JOBS=2 PYTHONPATH=python python -m pytest tests/test_int8_dequant_gemv_cuda.py -v
-11 passed in 3.52s
+15 passed in 3.59s
 
 MAX_JOBS=2 PYTHONPATH=python python -m pytest -v
-138 passed in 4.57s
+142 passed in 4.76s
 ```
 
 ---
@@ -258,6 +288,10 @@ results/int8_dequant_gemv_warp_comparison_20260713_122659.csv
 results/int8_dequant_gemv_warp_comparison_console_20260713_122655.log
 results/int8_dequant_gemv_vec4_comparison_20260713_131217.csv
 results/int8_dequant_gemv_vec4_comparison_console_20260713_131213.log
+results/int8_dequant_gemv_fp32_vec4_comparison_20260713_135940.csv
+results/int8_dequant_gemv_fp32_vec4_comparison_console_20260713_135935.log
+results/int8_dequant_gemv_fp16_vec4_comparison_20260713_135528.csv
+results/int8_dequant_gemv_fp16_vec4_comparison_console_20260713_135523.log
 ```
 
 ---
@@ -268,17 +302,17 @@ results/int8_dequant_gemv_vec4_comparison_console_20260713_131213.log
 
 | rows | in_features | out_features | PyTorch Reference ms | CUDA Naive ms | CUDA Warp ms | CUDA Tiled ms | CUDA Vec4 ms |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 1024 | 1024 | 0.587317 | 0.095019 | 0.035016 | 0.035688 | 0.032856 |
-| 1 | 2048 | 2048 | 1.542368 | 0.210086 | 0.079296 | 0.102501 | 0.080854 |
-| 4 | 2048 | 2048 | 1.455528 | 0.728339 | 0.228058 | 0.313299 | 0.157418 |
+| 1 | 1024 | 1024 | 0.751851 | 0.094877 | 0.036046 | 0.036555 | 0.033915 |
+| 1 | 2048 | 2048 | 1.541912 | 0.209755 | 0.079397 | 0.102296 | 0.080693 |
+| 4 | 2048 | 2048 | 1.457210 | 0.728774 | 0.226344 | 0.313338 | 0.158288 |
 
 ### 5.2 Speedup
 
 | rows | in_features | out_features | Naive vs Reference | Warp vs Reference | Tiled vs Reference | Vec4 vs Reference | Vec4 vs Warp |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 1024 | 1024 | 6.181x | 16.773x | 16.457x | 17.875x | 1.066x |
-| 1 | 2048 | 2048 | 7.342x | 19.451x | 15.047x | 19.076x | 0.981x |
-| 4 | 2048 | 2048 | 1.998x | 6.382x | 4.646x | 9.246x | 1.449x |
+| 1 | 1024 | 1024 | 7.925x | 20.858x | 20.568x | 22.169x | 1.063x |
+| 1 | 2048 | 2048 | 7.351x | 19.420x | 15.073x | 19.108x | 0.984x |
+| 4 | 2048 | 2048 | 2.000x | 6.438x | 4.651x | 9.206x | 1.430x |
 
 ### 5.3 Correctness maximum error
 
@@ -289,6 +323,30 @@ results/int8_dequant_gemv_vec4_comparison_console_20260713_131213.log
 | 4 | 2048 | 2048 | 2.44140625e-04 | 2.15530396e-04 | 2.15530396e-04 | 2.44140625e-04 |
 
 误差来自 FP32 reduction 顺序差异，当前测试和 benchmark 使用 `1e-4` 级别容差。
+
+### 5.4 FP16 activation benchmark
+
+FP16 activation 路径使用相同 benchmark 参数：
+
+```text
+warmup=5
+rounds=10
+repeats=10
+```
+
+| rows | in_features | out_features | PyTorch Reference ms | CUDA Naive ms | CUDA Warp ms | CUDA Tiled ms | CUDA Vec4 API ms |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1024 | 1024 | 0.764867 | 0.101370 | 0.036098 | 0.036778 | 0.035406 |
+| 1 | 2048 | 2048 | 1.534938 | 0.409098 | 0.082110 | 0.102288 | 0.078752 |
+| 4 | 2048 | 2048 | 1.475491 | 1.514955 | 0.230714 | 0.315715 | 0.228504 |
+
+| rows | in_features | out_features | Vec4 API vs Reference | Vec4 API vs Naive | Vec4 API vs Warp |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1024 | 1024 | 21.603x | 2.863x | 1.020x |
+| 1 | 2048 | 2048 | 19.491x | 5.195x | 1.043x |
+| 4 | 2048 | 2048 | 6.457x | 6.630x | 1.010x |
+
+这里的 `CUDA Vec4 API` 对 FP16 x 会走标量 warp fallback，而不是 float4 快路径。
 
 ---
 
@@ -353,9 +411,9 @@ Warp vs Naive = 2.509x 到 3.200x
 X-tile 版本试图让同一个 block 内 8 个 warp 复用 shared memory 中的 `x` tile。结果数值正确，但三组 benchmark 都慢于 warp-level：
 
 ```text
-rows=1, in=1024, out=1024：Tiled vs Warp 0.981x
-rows=1, in=2048, out=2048：Tiled vs Warp 0.774x
-rows=4, in=2048, out=2048：Tiled vs Warp 0.728x
+rows=1, in=1024, out=1024：Tiled vs Warp 0.986x
+rows=1, in=2048, out=2048：Tiled vs Warp 0.776x
+rows=4, in=2048, out=2048：Tiled vs Warp 0.722x
 ```
 
 当前判断是：每个 tile 的加载和 `__syncthreads()` 开销，超过了 8 个 warp 复用同一段 `x` 带来的收益。这个实验保留为负结果，有助于说明 shared memory 并不是这个映射下的直接收益点。
@@ -365,9 +423,9 @@ rows=4, in=2048, out=2048：Tiled vs Warp 0.728x
 Vec4 版本保持 warp-level 的 block/warp 映射，只把 inner loop 改为 4 元向量读取。结果更接近实际瓶颈：
 
 ```text
-rows=1, in=1024, out=1024：Vec4 vs Warp 1.066x
-rows=1, in=2048, out=2048：Vec4 vs Warp 0.981x
-rows=4, in=2048, out=2048：Vec4 vs Warp 1.449x
+rows=1, in=1024, out=1024：Vec4 vs Warp 1.063x
+rows=1, in=2048, out=2048：Vec4 vs Warp 0.984x
+rows=4, in=2048, out=2048：Vec4 vs Warp 1.430x
 ```
 
 结论：
@@ -376,6 +434,16 @@ rows=4, in=2048, out=2048：Vec4 vs Warp 1.449x
 - rows=4 时同一 kernel 中有效工作更多，向量化读取的收益更容易体现；
 - 对当前 FP32 activation 版本，`float4 + char4` 是比 DP4A 更直接的优化方向；
 - 如果要真正使用 DP4A，需要增加 INT8 activation/quantization 路径，或者在上游保留 INT8 激活。
+
+### 6.6 FP16 activation 结果
+
+FP16 activation 支持的主要价值是补齐端侧推理常见 dtype，而不是立即获得 half2 性能收益。当前实现每次读取 FP16 x 后转成 FP32 参与乘加和规约，最后再写回 FP16 output。
+
+结果上：
+
+- Warp 和 Vec4 API 在 FP16 下基本持平，因为 Vec4 API 对 FP16 走 scalar fallback；
+- Naive FP16 在 rows=4, in=2048, out=2048 场景慢于 PyTorch Reference，说明一个输出元素一个 block 的映射在半精度输入下仍不合适；
+- 真正的 FP16 性能优化需要 half2 读取和双元素向量化乘加，而不是只把 scalar_t 换成 half。
 
 ---
 
@@ -386,9 +454,9 @@ rows=4, in=2048, out=2048：Vec4 vs Warp 1.449x
 1. 多个输出通道重复读取同一段 `x`；
 2. 已尝试对 `x` 做 shared memory tile，但当前实现中同步开销超过复用收益；
 3. Vec4 已完成，但 rows=1 场景收益有限；
-4. 没有使用 DP4A，因为当前 activation 是 FP32；
-5. 当前输入 `x` 仅支持 FP32；
-6. 没有 FP16 / half2 路径；
+4. 没有使用 DP4A，因为当前 activation 不是 INT8 packed activation；
+5. FP16 activation 已支持，但还没有 half2 优化；
+6. Vec4 快路径仍只支持 FP32 activation；
 7. benchmark 参数还不是与前两个算子完全一致的正式长跑参数。
 
 ---
@@ -397,7 +465,7 @@ rows=4, in=2048, out=2048：Vec4 vs Warp 1.449x
 
 优先级较高：
 
-1. 增加 FP16 / half2 activation 路径；
+1. 增加 FP16 half2 activation 路径；
 2. 设计 INT8 activation 路径，再评估 DP4A；
 3. 如果继续 x tile 复用，需要减少同步或让一个 block 计算更多 output channel；
 4. 一个 block 计算更多 output channel；
@@ -421,6 +489,8 @@ X-tile CUDA experiment
     ↓
 Vec4 CUDA
     ↓
+FP16 activation support
+    ↓
 Correctness Tests
     ↓
 Benchmark CSV / Console Log
@@ -434,6 +504,7 @@ Optimization Report
 CUDA Naive 避免显式 dequant_weight，中等规模下相对 PyTorch Reference 有明显收益。
 Warp-level 版本通过一个 block 计算 8 个输出通道，进一步获得 2.5x 到 3.2x 的 Naive 相对加速。
 X-tile shared-memory 复用实验数值正确但没有加速，说明当前映射下同步开销更关键。
-Vec4 版本在 rows=4, in=2048, out=2048 场景相对 Warp 达到 1.449x，在 rows=1 场景接近持平。
-下一阶段最有价值的方向是 FP16/half2 activation、INT8 activation + DP4A，以及 Nsight profiling。
+Vec4 版本在 rows=4, in=2048, out=2048 场景相对 Warp 达到 1.430x，在 rows=1 场景接近持平。
+FP16 activation 已完成基础功能支持，但当前还不是 half2 优化。
+下一阶段最有价值的方向是 FP16 half2、INT8 activation + DP4A，以及 Nsight profiling。
 ```

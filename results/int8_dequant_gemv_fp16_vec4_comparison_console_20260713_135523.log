@@ -1,0 +1,99 @@
+========================================================================
+EdgeLLM-KernelBench: INT8 Dequant-GEMV PyTorch vs CUDA Naive vs Warp vs Tiled vs Vec4
+========================================================================
+PyTorch version:  2.8.0
+CUDA version:     12.6
+CUDA device:      Orin
+Activation dtype: fp16
+Warmup calls:     5
+Measure rounds:   10
+Repeats/round:    10
+
+Loading INT8 Dequant-GEMV CUDA extension...
+INT8 Dequant-GEMV CUDA extension loaded.
+
+Case: rows=1, in_features=1024, out_features=1024, dtype=float16
+CUDA correctness maximum error: 2.44140625e-04
+Warp correctness maximum error: 2.44140625e-04
+Tiled correctness maximum error: 2.44140625e-04
+Vec4 correctness maximum error: 2.44140625e-04
+PyTorch Reference median: 0.764867 ms
+CUDA Naive median:        0.101370 ms
+CUDA Warp median:         0.036098 ms
+CUDA Tiled median:        0.036778 ms
+CUDA Vec4 median:         0.035406 ms
+CUDA Naive vs Reference:  7.545x
+CUDA Warp vs Reference:   21.189x
+CUDA Tiled vs Reference:  20.797x
+CUDA Vec4 vs Reference:   21.603x
+CUDA Warp vs Naive:       2.808x
+CUDA Tiled vs Naive:      2.756x
+CUDA Vec4 vs Naive:       2.863x
+CUDA Tiled vs Warp:       0.982x
+CUDA Vec4 vs Warp:        1.020x
+
+Case: rows=1, in_features=2048, out_features=2048, dtype=float16
+CUDA correctness maximum error: 7.81250000e-03
+Warp correctness maximum error: 7.81250000e-03
+Tiled correctness maximum error: 7.81250000e-03
+Vec4 correctness maximum error: 7.81250000e-03
+PyTorch Reference median: 1.534938 ms
+CUDA Naive median:        0.409098 ms
+CUDA Warp median:         0.082110 ms
+CUDA Tiled median:        0.102288 ms
+CUDA Vec4 median:         0.078752 ms
+CUDA Naive vs Reference:  3.752x
+CUDA Warp vs Reference:   18.694x
+CUDA Tiled vs Reference:  15.006x
+CUDA Vec4 vs Reference:   19.491x
+CUDA Warp vs Naive:       4.982x
+CUDA Tiled vs Naive:      3.999x
+CUDA Vec4 vs Naive:       5.195x
+CUDA Tiled vs Warp:       0.803x
+CUDA Vec4 vs Warp:        1.043x
+
+Case: rows=4, in_features=2048, out_features=2048, dtype=float16
+CUDA correctness maximum error: 1.56250000e-02
+Warp correctness maximum error: 1.56250000e-02
+Tiled correctness maximum error: 1.56250000e-02
+Vec4 correctness maximum error: 1.56250000e-02
+PyTorch Reference median: 1.475491 ms
+CUDA Naive median:        1.514955 ms
+CUDA Warp median:         0.230714 ms
+CUDA Tiled median:        0.315715 ms
+CUDA Vec4 median:         0.228504 ms
+CUDA Naive vs Reference:  0.974x
+CUDA Warp vs Reference:   6.395x
+CUDA Tiled vs Reference:  4.673x
+CUDA Vec4 vs Reference:   6.457x
+CUDA Warp vs Naive:       6.566x
+CUDA Tiled vs Naive:      4.798x
+CUDA Vec4 vs Naive:       6.630x
+CUDA Tiled vs Warp:       0.731x
+CUDA Vec4 vs Warp:        1.010x
+
+
+================================================================================================================
+INT8 Dequant-GEMV Benchmark Summary
+================================================================================================================
+implementation           dtype    rows        in       out      mean(ms)    median(ms)       min(ms)       p95(ms)      vs_ref
+----------------------------------------------------------------------------------------------------------------
+pytorch_reference      float16       1      1024      1024      0.637607      0.764867      0.427290      0.785053      1.000x
+cuda_naive             float16       1      1024      1024      0.101401      0.101370      0.101142      0.101696      7.545x
+cuda_warp              float16       1      1024      1024      0.036464      0.036098      0.034842      0.041997     21.189x
+cuda_tiled             float16       1      1024      1024      0.036805      0.036778      0.035747      0.039306     20.797x
+cuda_vec4              float16       1      1024      1024      0.035892      0.035406      0.034186      0.039978     21.603x
+pytorch_reference      float16       1      2048      2048      1.688795      1.534938      1.404294      2.830166      1.000x
+cuda_naive             float16       1      2048      2048      0.409067      0.409098      0.408496      0.409606      3.752x
+cuda_warp              float16       1      2048      2048      0.082100      0.082110      0.081715      0.082544     18.694x
+cuda_tiled             float16       1      2048      2048      0.102316      0.102288      0.102070      0.102618     15.006x
+cuda_vec4              float16       1      2048      2048      0.078792      0.078752      0.078541      0.079050     19.491x
+pytorch_reference      float16       4      2048      2048      1.569770      1.475491      1.473472      1.756922      1.000x
+cuda_naive             float16       4      2048      2048      1.515094      1.514955      1.514518      1.515750      0.974x
+cuda_warp              float16       4      2048      2048      0.230686      0.230714      0.230390      0.231002      6.395x
+cuda_tiled             float16       4      2048      2048      0.315718      0.315715      0.315123      0.316112      4.673x
+cuda_vec4              float16       4      2048      2048      0.228549      0.228504      0.228394      0.228842      6.457x
+================================================================================================================
+
+Benchmark results saved to:
+/home/liujiayu/edge-llm-kernelbench/results/int8_dequant_gemv_fp16_vec4_comparison_20260713_135528.csv

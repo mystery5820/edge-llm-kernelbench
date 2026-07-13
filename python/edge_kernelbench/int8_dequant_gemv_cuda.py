@@ -132,7 +132,9 @@ def int8_dequant_gemv_cuda(
     bias: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
-    调用 INT8 Dequant-GEMV FP32 Naive CUDA Kernel。
+    调用 INT8 Dequant-GEMV Naive CUDA Kernel。
+
+    当前支持 FP32 / FP16 x，内部使用 FP32 累加，输出 dtype 与 x 一致。
     """
 
     extension = load_int8_dequant_gemv_cuda_extension()
@@ -162,6 +164,8 @@ def int8_dequant_gemv_cuda_warp(
 ) -> torch.Tensor:
     """
     调用 INT8 Dequant-GEMV warp-level CUDA Kernel。
+
+    当前支持 FP32 / FP16 x，内部使用 FP32 累加，输出 dtype 与 x 一致。
     """
 
     extension = load_int8_dequant_gemv_cuda_extension()
@@ -191,6 +195,8 @@ def int8_dequant_gemv_cuda_tiled(
 ) -> torch.Tensor:
     """
     调用 INT8 Dequant-GEMV x-tile shared-memory CUDA Kernel。
+
+    当前支持 FP32 / FP16 x，内部使用 FP32 累加，输出 dtype 与 x 一致。
     """
 
     extension = load_int8_dequant_gemv_cuda_extension()
@@ -223,6 +229,7 @@ def int8_dequant_gemv_cuda_vec4(
 
     常见 in_features 为 4 的倍数且内存对齐时，x 使用 float4、
     weight_int8 使用 char4；否则 kernel 内部回退到标量 warp 路径。
+    FP16 x 当前也走标量 warp 路径，half2 是后续优化方向。
     """
 
     extension = load_int8_dequant_gemv_cuda_extension()

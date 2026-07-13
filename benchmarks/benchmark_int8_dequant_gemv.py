@@ -61,6 +61,7 @@ class TimingStatistics:
 @dataclass(frozen=True)
 class BenchmarkResult:
     implementation: str
+    activation_dtype: str
     rows: int
     in_features: int
     out_features: int
@@ -105,6 +106,16 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
     )
 
+    parser.add_argument(
+        "--dtype",
+        choices=[
+            "fp32",
+            "fp16",
+        ],
+        default="fp32",
+        help="Activation dtype to benchmark.",
+    )
+
     arguments = parser.parse_args()
 
     if arguments.warmup < 0:
@@ -122,7 +133,7 @@ def parse_arguments() -> argparse.Namespace:
 def calculate_percentile(
     values: list[float],
     percentile: float,
-) -> tuple[float, float, float, float]:
+) -> float:
     ordered = sorted(
         values
     )
@@ -259,32 +270,38 @@ def verify_correctness(
             reference_output - vec4_output
         ).abs().max().item()
 
+        tolerance = (
+            2e-2
+            if x.dtype == torch.float16
+            else 1e-4
+        )
+
         torch.testing.assert_close(
             cuda_output,
             reference_output,
-            rtol=1e-4,
-            atol=1e-4,
+            rtol=tolerance,
+            atol=tolerance,
         )
 
         torch.testing.assert_close(
             warp_output,
             reference_output,
-            rtol=1e-4,
-            atol=1e-4,
+            rtol=tolerance,
+            atol=tolerance,
         )
 
         torch.testing.assert_close(
             tiled_output,
             reference_output,
-            rtol=1e-4,
-            atol=1e-4,
+            rtol=tolerance,
+            atol=tolerance,
         )
 
         torch.testing.assert_close(
             vec4_output,
             reference_output,
-            rtol=1e-4,
-            atol=1e-4,
+            rtol=tolerance,
+            atol=tolerance,
         )
 
     return (
@@ -300,13 +317,14 @@ def run_benchmark_case(
     warmup_iterations: int,
     measurement_rounds: int,
     repeats_per_round: int,
+    activation_dtype: torch.dtype,
 ) -> list[BenchmarkResult]:
     torch.manual_seed(2026)
 
     x = torch.randn(
         case.shape,
         device="cuda",
-        dtype=torch.float32,
+        dtype=activation_dtype,
     )
 
     weight_int8 = torch.randint(
@@ -347,7 +365,8 @@ def run_benchmark_case(
     print(
         f"\nCase: rows={case.rows}, "
         f"in_features={case.in_features}, "
-        f"out_features={case.out_features}"
+        f"out_features={case.out_features}, "
+        f"dtype={str(activation_dtype).replace('torch.', '')}"
     )
 
     print(
@@ -558,6 +577,10 @@ def run_benchmark_case(
     return [
         BenchmarkResult(
             implementation="pytorch_reference",
+            activation_dtype=str(activation_dtype).replace(
+                "torch.",
+                "",
+            ),
             rows=case.rows,
             in_features=case.in_features,
             out_features=case.out_features,
@@ -572,6 +595,10 @@ def run_benchmark_case(
         ),
         BenchmarkResult(
             implementation="cuda_naive",
+            activation_dtype=str(activation_dtype).replace(
+                "torch.",
+                "",
+            ),
             rows=case.rows,
             in_features=case.in_features,
             out_features=case.out_features,
@@ -586,6 +613,10 @@ def run_benchmark_case(
         ),
         BenchmarkResult(
             implementation="cuda_warp",
+            activation_dtype=str(activation_dtype).replace(
+                "torch.",
+                "",
+            ),
             rows=case.rows,
             in_features=case.in_features,
             out_features=case.out_features,
@@ -600,6 +631,10 @@ def run_benchmark_case(
         ),
         BenchmarkResult(
             implementation="cuda_tiled",
+            activation_dtype=str(activation_dtype).replace(
+                "torch.",
+                "",
+            ),
             rows=case.rows,
             in_features=case.in_features,
             out_features=case.out_features,
@@ -614,6 +649,10 @@ def run_benchmark_case(
         ),
         BenchmarkResult(
             implementation="cuda_vec4",
+            activation_dtype=str(activation_dtype).replace(
+                "torch.",
+                "",
+            ),
             rows=case.rows,
             in_features=case.in_features,
             out_features=case.out_features,
@@ -639,6 +678,7 @@ def print_summary_table(
 
     header = (
         f"{'implementation':<20}"
+        f"{'dtype':>10}"
         f"{'rows':>8}"
         f"{'in':>10}"
         f"{'out':>10}"
@@ -655,6 +695,7 @@ def print_summary_table(
     for result in results:
         print(
             f"{result.implementation:<20}"
+            f"{result.activation_dtype:>10}"
             f"{result.rows:>8}"
             f"{result.in_features:>10}"
             f"{result.out_features:>10}"
@@ -670,6 +711,7 @@ def print_summary_table(
 
 def save_results_to_csv(
     results: list[BenchmarkResult],
+    dtype_name: str,
 ) -> Path:
     results_directory = (
         PROJECT_ROOT
@@ -687,7 +729,7 @@ def save_results_to_csv(
 
     output_path = (
         results_directory
-        / f"int8_dequant_gemv_vec4_comparison_{timestamp}.csv"
+        / f"int8_dequant_gemv_{dtype_name}_vec4_comparison_{timestamp}.csv"
     )
 
     fieldnames = [
@@ -696,6 +738,7 @@ def save_results_to_csv(
         "torch_version",
         "cuda_version",
         "implementation",
+        "activation_dtype",
         "rows",
         "in_features",
         "out_features",
@@ -730,6 +773,7 @@ def save_results_to_csv(
                     "torch_version": torch.__version__,
                     "cuda_version": torch.version.cuda or "unknown",
                     "implementation": result.implementation,
+                    "activation_dtype": result.activation_dtype,
                     "rows": result.rows,
                     "in_features": result.in_features,
                     "out_features": result.out_features,
@@ -764,6 +808,7 @@ def main() -> None:
     print("PyTorch version: ", torch.__version__)
     print("CUDA version:    ", torch.version.cuda)
     print("CUDA device:     ", torch.cuda.get_device_name(0))
+    print("Activation dtype:", arguments.dtype)
     print("Warmup calls:    ", arguments.warmup)
     print("Measure rounds:  ", arguments.rounds)
     print("Repeats/round:   ", arguments.repeats)
@@ -794,6 +839,12 @@ def main() -> None:
 
     all_results: list[BenchmarkResult] = []
 
+    activation_dtype = (
+        torch.float16
+        if arguments.dtype == "fp16"
+        else torch.float32
+    )
+
     for case in benchmark_cases:
         all_results.extend(
             run_benchmark_case(
@@ -801,6 +852,7 @@ def main() -> None:
                 warmup_iterations=arguments.warmup,
                 measurement_rounds=arguments.rounds,
                 repeats_per_round=arguments.repeats,
+                activation_dtype=activation_dtype,
             )
         )
 
@@ -809,7 +861,8 @@ def main() -> None:
     )
 
     output_path = save_results_to_csv(
-        all_results
+        results=all_results,
+        dtype_name=arguments.dtype,
     )
 
     print("\nBenchmark results saved to:")

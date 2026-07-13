@@ -9,7 +9,7 @@
  * - x 使用 float4 读取；
  * - weight_int8 使用 char4 读取。
  *
- * 不满足对齐或 in_features % 4 != 0 时回退到标量 warp 路径。
+ * 不满足对齐、in_features % 4 != 0 或 x 不是 FP32 时回退到标量 warp 路径。
  */
 
 #include <torch/extension.h>
@@ -82,12 +82,13 @@ __device__ __forceinline__ float dot_float4_char4(
 }
 
 
+template <typename scalar_t>
 __global__ void int8_dequant_gemv_vec4_kernel(
-    const float* __restrict__ x,
+    const scalar_t* __restrict__ x,
     const int8_t* __restrict__ weight_int8,
     const float* __restrict__ scale,
     const float* __restrict__ bias,
-    float* __restrict__ output,
+    scalar_t* __restrict__ output,
     int64_t rows,
     int64_t in_features,
     int64_t out_features,
@@ -177,7 +178,9 @@ __global__ void int8_dequant_gemv_vec4_kernel(
             column += kVec4WarpSize
         ) {
             const float x_value =
-                x[x_row_offset + column];
+                static_cast<float>(
+                    x[x_row_offset + column]
+                );
 
             const float weight_value =
                 static_cast<float>(
@@ -209,7 +212,7 @@ __global__ void int8_dequant_gemv_vec4_kernel(
         output[
             row_id * out_features
             + out_feature_id
-        ] = value;
+        ] = static_cast<scalar_t>(value);
     }
 }
 
@@ -250,7 +253,8 @@ torch::Tensor int8_dequant_gemv_vec4_cuda_launcher(
     }
 
     const bool use_vec4 =
-        in_features % 4 == 0
+        x.scalar_type() == torch::kFloat32
+        && in_features % 4 == 0
         && is_aligned(
             x.data_ptr<float>(),
             16
@@ -283,22 +287,28 @@ torch::Tensor int8_dequant_gemv_vec4_cuda_launcher(
             ? bias.data_ptr<float>()
             : nullptr;
 
-    int8_dequant_gemv_vec4_kernel<<<
-        blocks,
-        kVec4ThreadsPerBlock,
-        0,
-        stream
-    >>>(
-        x.data_ptr<float>(),
-        weight_int8.data_ptr<int8_t>(),
-        scale.data_ptr<float>(),
-        bias_data,
-        output.data_ptr<float>(),
-        rows,
-        in_features,
-        out_features,
-        has_bias,
-        use_vec4
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x.scalar_type(),
+        "int8_dequant_gemv_vec4_cuda",
+        [&] {
+            int8_dequant_gemv_vec4_kernel<scalar_t><<<
+                blocks,
+                kVec4ThreadsPerBlock,
+                0,
+                stream
+            >>>(
+                x.data_ptr<scalar_t>(),
+                weight_int8.data_ptr<int8_t>(),
+                scale.data_ptr<float>(),
+                bias_data,
+                output.data_ptr<scalar_t>(),
+                rows,
+                in_features,
+                out_features,
+                has_bias,
+                use_vec4
+            );
+        }
     );
 
     C10_CUDA_KERNEL_LAUNCH_CHECK();

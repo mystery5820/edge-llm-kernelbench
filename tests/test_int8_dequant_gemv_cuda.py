@@ -38,6 +38,7 @@ def assert_cuda_matches_reference(
     shape: tuple[int, ...],
     out_features: int,
     use_bias: bool = False,
+    dtype: torch.dtype = torch.float32,
 ) -> None:
     """
     创建随机输入，并比较 CUDA 与 PyTorch Reference。
@@ -50,7 +51,7 @@ def assert_cuda_matches_reference(
     x = torch.randn(
         shape,
         device="cuda",
-        dtype=torch.float32,
+        dtype=dtype,
     )
 
     weight_int8 = torch.randint(
@@ -116,53 +117,59 @@ def assert_cuda_matches_reference(
 
     torch.cuda.synchronize()
 
+    tolerance = (
+        2e-2
+        if dtype == torch.float16
+        else 1e-4
+    )
+
     torch.testing.assert_close(
         actual,
         expected,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
     torch.testing.assert_close(
         warp_actual,
         expected,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
     torch.testing.assert_close(
         warp_actual,
         actual,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
     torch.testing.assert_close(
         tiled_actual,
         expected,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
     torch.testing.assert_close(
         tiled_actual,
         warp_actual,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
     torch.testing.assert_close(
         vec4_actual,
         expected,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
     torch.testing.assert_close(
         vec4_actual,
         warp_actual,
-        rtol=1e-4,
-        atol=1e-4,
+        rtol=tolerance,
+        atol=tolerance,
     )
 
 
@@ -300,6 +307,25 @@ def test_cuda_matches_reference_with_bias() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (16,),
+        (4, 16),
+        (4, 18),
+    ],
+)
+def test_cuda_matches_reference_for_fp16_shapes(
+    shape: tuple[int, ...],
+) -> None:
+    assert_cuda_matches_reference(
+        shape,
+        out_features=12,
+        use_bias=True,
+        dtype=torch.float16,
+    )
+
+
 def test_cuda_output_metadata() -> None:
     """
     输出 shape、dtype、device 应正确。
@@ -342,6 +368,52 @@ def test_cuda_output_metadata() -> None:
         12,
     )
     assert output.dtype == torch.float32
+    assert output.device.type == "cuda"
+    assert output.is_contiguous()
+
+
+def test_cuda_fp16_output_metadata() -> None:
+    """
+    FP16 x 应输出 FP16，并在 kernel 内部使用 FP32 累加。
+    """
+
+    x = torch.randn(
+        2,
+        3,
+        16,
+        device="cuda",
+        dtype=torch.float16,
+    )
+
+    weight_int8 = torch.randint(
+        -8,
+        8,
+        (
+            12,
+            16,
+        ),
+        device="cuda",
+        dtype=torch.int8,
+    )
+
+    scale = torch.rand(
+        12,
+        device="cuda",
+        dtype=torch.float32,
+    )
+
+    output = int8_dequant_gemv_cuda_vec4(
+        x,
+        weight_int8,
+        scale,
+    )
+
+    assert output.shape == (
+        2,
+        3,
+        12,
+    )
+    assert output.dtype == torch.float16
     assert output.device.type == "cuda"
     assert output.is_contiguous()
 
@@ -415,11 +487,11 @@ def test_cuda_rejects_cpu_input() -> None:
         )
 
 
-def test_cuda_rejects_fp16_input() -> None:
+def test_cuda_rejects_float64_input() -> None:
     x = torch.randn(
         16,
         device="cuda",
-        dtype=torch.float16,
+        dtype=torch.float64,
     )
     weight_int8 = torch.randint(
         -8,
@@ -438,7 +510,7 @@ def test_cuda_rejects_fp16_input() -> None:
 
     with pytest.raises(
         RuntimeError,
-        match="supports only float32 x",
+        match="supports only float32 or float16 x",
     ):
         int8_dequant_gemv_cuda(
             x,

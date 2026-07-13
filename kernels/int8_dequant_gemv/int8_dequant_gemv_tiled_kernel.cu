@@ -8,7 +8,7 @@
  * - 将 x 的一段 tile 加载到 shared memory；
  * - 8 个 warp 复用同一段 x tile，减少重复 global load。
  *
- * 当前 tile 大小为 256 个 float。
+ * 当前 tile 大小为 256 个 FP32 累加值。
  */
 
 #include <torch/extension.h>
@@ -52,12 +52,13 @@ __device__ __forceinline__ float warp_reduce_sum_int8_gemv_tiled(
 }
 
 
+template <typename scalar_t>
 __global__ void int8_dequant_gemv_tiled_kernel(
-    const float* __restrict__ x,
+    const scalar_t* __restrict__ x,
     const int8_t* __restrict__ weight_int8,
     const float* __restrict__ scale,
     const float* __restrict__ bias,
-    float* __restrict__ output,
+    scalar_t* __restrict__ output,
     int64_t rows,
     int64_t in_features,
     int64_t out_features,
@@ -113,11 +114,13 @@ __global__ void int8_dequant_gemv_tiled_kernel(
 
         if (thread_id < tile_count) {
             shared_x[thread_id] =
-                x[
-                    x_row_offset
-                    + tile_start
-                    + thread_id
-                ];
+                static_cast<float>(
+                    x[
+                        x_row_offset
+                        + tile_start
+                        + thread_id
+                    ]
+                );
         }
 
         __syncthreads();
@@ -164,7 +167,7 @@ __global__ void int8_dequant_gemv_tiled_kernel(
         output[
             row_id * out_features
             + out_feature_id
-        ] = value;
+        ] = static_cast<scalar_t>(value);
     }
 }
 
@@ -230,21 +233,27 @@ torch::Tensor int8_dequant_gemv_tiled_cuda_launcher(
             ? bias.data_ptr<float>()
             : nullptr;
 
-    int8_dequant_gemv_tiled_kernel<<<
-        blocks,
-        kTiledThreadsPerBlock,
-        shared_memory_bytes,
-        stream
-    >>>(
-        x.data_ptr<float>(),
-        weight_int8.data_ptr<int8_t>(),
-        scale.data_ptr<float>(),
-        bias_data,
-        output.data_ptr<float>(),
-        rows,
-        in_features,
-        out_features,
-        has_bias
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+        x.scalar_type(),
+        "int8_dequant_gemv_tiled_cuda",
+        [&] {
+            int8_dequant_gemv_tiled_kernel<scalar_t><<<
+                blocks,
+                kTiledThreadsPerBlock,
+                shared_memory_bytes,
+                stream
+            >>>(
+                x.data_ptr<scalar_t>(),
+                weight_int8.data_ptr<int8_t>(),
+                scale.data_ptr<float>(),
+                bias_data,
+                output.data_ptr<scalar_t>(),
+                rows,
+                in_features,
+                out_features,
+                has_bias
+            );
+        }
     );
 
     C10_CUDA_KERNEL_LAUNCH_CHECK();

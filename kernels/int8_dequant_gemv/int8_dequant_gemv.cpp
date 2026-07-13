@@ -102,9 +102,10 @@ void validate_int8_dequant_gemv_inputs(
     }
 
     TORCH_CHECK(
-        x.scalar_type() == torch::kFloat32,
-        "the INT8 Dequant-GEMV CUDA kernel currently supports only float32 x, ",
-        "but received dtype=",
+        x.scalar_type() == torch::kFloat32
+            || x.scalar_type() == torch::kFloat16,
+        "the INT8 Dequant-GEMV CUDA kernel currently supports only float32 "
+        "or float16 x, but received dtype=",
         x.scalar_type()
     );
 
