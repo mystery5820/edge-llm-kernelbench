@@ -4,8 +4,8 @@
 > 交接日期：2026-07-12  
 > 当前项目：`edge-llm-kernelbench`  
 > 当前主线：RoPE CUDA 算子开发
-> 最新状态：RMSNorm Phase 3 已完成；RoPE Naive 与 Float4 CUDA Kernel 已完成并验证
-> 下一任务：RoPE 性能分析文档或 INT8 Dequant-GEMV
+> 最新状态：RMSNorm 与 RoPE 阶段性闭环已完成
+> 下一任务：INT8 Dequant-GEMV
 
 ---
 
@@ -16,6 +16,8 @@
 RoPE Float4 CUDA Kernel 已完成：
 
 - 新增 `kernels/rope/rope_float4_kernel.cu`；
+- 新增 RoPE 阶段性优化分析报告：
+  - `docs/02_rope_optimization.md`
 - C++ 新增 `forward_float4`；
 - Python 新增 `rope_cuda_float4()`；
 - 新增 `tests/test_rope_float4.py`；
